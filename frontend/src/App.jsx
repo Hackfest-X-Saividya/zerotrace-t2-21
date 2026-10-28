@@ -7,50 +7,72 @@ import {
   Terminal, 
   Zap, 
   Activity, 
-  RefreshCw, 
-  Sliders, 
   Key, 
-  AlertTriangle, 
   CheckCircle2, 
   Flame, 
   HelpCircle,
   X,
   Play,
-  RotateCcw
+  RotateCcw,
+  Download,
+  AlertOctagon,
+  Layers,
+  Radio,
+  Eye,
+  Server
 } from 'lucide-react';
 
-const SCENARIOS = [
-  { id: 1, name: "Valid Signed OTA", layer: "L1: Secure Boot", tag: "NIST PR.PS-01", desc: "Authentic v2 payload with valid HMAC-SHA256 signature." },
-  { id: 2, name: "MITM Tampered Payload", layer: "L1: Cryptographic Integrity", tag: "NIST PR.PS-01", desc: "Corrupted bytes in transit causing HMAC mismatch." },
-  { id: 3, name: "Downgrade / Rollback Exploit", layer: "L1: Monotonic Anti-Rollback", tag: "NIST PR.PS-02", desc: "v0 binary blocked by NVS monotonic counter." },
-  { id: 4, name: "Buggy Probationary Boot", layer: "L1: Watchdog Rollback", tag: "NIST RC.RP-01", desc: "Fails self-test; rolls back to Golden Image." },
-  { id: 5, name: "Zero-Wear Key Sanitization", layer: "L4: Fast Wipe", tag: "NIST RS.MI-02", desc: "Sub-1ms cryptographic key erasure in flash." },
-  { id: 6, name: "8.5µs VFI Fault Injection", layer: "L2: SBFT Anomaly Trap", tag: "NIST DE.CM-01", desc: "Hardware pulse skips instruction; triggers watchdog reset." },
-];
-
 export default function App() {
-  const [connected, setConnected] = useState(false);
-  const [selectedPort, setSelectedPort] = useState('/dev/cu.usbserial-0001');
-  const [availablePorts, setAvailablePorts] = useState([]);
-  const [metrics, setMetrics] = useState({
-    total_events: 0,
-    critical_count: 0,
-    high_count: 0,
-    medium_count: 0,
-    low_count: 0,
-    pr_count: 0,
-    de_count: 0,
-    rs_count: 0,
-    rc_count: 0,
-    mitigations_executed: 0,
+  // Navigation: 'red' (Attack Dispatch) or 'blue' (Evidence & Telemetry)
+  const [activeTab, setActiveTab] = useState('blue');
+  const [selectedLayer, setSelectedLayer] = useState('All');
+  const [execMode, setExecMode] = useState('auto'); // 'auto', 'real', 'simulate'
+  
+  // Devices state
+  const [devices, setDevices] = useState({
+    baseline: { name: "Target A — ESP8266 NodeMCU (Baseline)", port: "/dev/cu.usbserial-0001", arch: "esp8266", connected: false, verified: false, chip: null },
+    hardened: { name: "Target B — ESP32 DevKit (Hardened)", port: "/dev/cu.usbserial-0002", arch: "esp32", connected: false, verified: false, chip: null },
+    uno: { name: "Arduino Uno Target (Optional Hardware-Assisted Monitor)", port: "/dev/cu.usbmodem14101", arch: "avr", connected: false, verified: false, optional: true }
   });
-  const [events, setEvents] = useState([]);
+  const [availablePorts, setAvailablePorts] = useState([]);
+  
+  // Test Catalog & Results
+  const [catalog, setCatalog] = useState([]);
+  const [results, setResults] = useState([]);
+  const [csfCoverage, setCsfCoverage] = useState(null);
+  const [metrics, setMetrics] = useState({
+    total_tests: 0,
+    pass_count: 0,
+    fail_count: 0,
+    inconclusive_count: 0,
+    baseline_weaknesses_observed: 0,
+    hardened_mitigations_enforced: 0,
+  });
+  
   const [rawLogs, setRawLogs] = useState([]);
-  const [isSimulating, setIsSimulating] = useState(false);
+  const [isExecuting, setIsExecuting] = useState(false);
   const [showWiringModal, setShowWiringModal] = useState(false);
+  const [showLimitationsModal, setShowLimitationsModal] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
 
   const terminalEndRef = useRef(null);
+
+  // Sync tab with URL search params on mount (?view=red or ?view=blue)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const view = params.get('view');
+    if (view === 'red' || view === 'blue') {
+      setActiveTab(view);
+    }
+  }, []);
+
+  // Update URL param when switching tab
+  const handleTabSwitch = (tab) => {
+    setActiveTab(tab);
+    const url = new URL(window.location);
+    url.searchParams.set('view', tab);
+    window.history.pushState({}, '', url);
+  };
 
   // Auto-scroll terminal
   useEffect(() => {
@@ -59,96 +81,133 @@ export default function App() {
     }
   }, [rawLogs, autoScroll]);
 
-  // Fetch available COM ports
-  const fetchPorts = async () => {
+  // Fetch initial catalog, ports, and coverage
+  const fetchData = async () => {
     try {
-      const res = await fetch('/api/ports');
-      const data = await res.json();
-      if (data.ports && data.ports.length > 0) {
-        setAvailablePorts(data.ports);
-        if (!selectedPort && data.ports[0]) {
-          setSelectedPort(data.ports[0].device);
-        }
+      const catRes = await fetch('/api/catalog');
+      const catData = await catRes.json();
+      setCatalog(catData.scenarios || []);
+
+      const portRes = await fetch('/api/ports');
+      const portData = await portRes.json();
+      setAvailablePorts(portData.ports || []);
+
+      const covRes = await fetch('/api/csf-coverage');
+      const covData = await covRes.json();
+      setCsfCoverage(covData);
+
+      const healthRes = await fetch('/api/health');
+      const healthData = await healthRes.json();
+      if (healthData.devices) {
+        setDevices(prev => ({
+          ...prev,
+          baseline: { ...prev.baseline, ...healthData.devices.baseline },
+          hardened: { ...prev.hardened, ...healthData.devices.hardened },
+          uno: { ...prev.uno, ...healthData.devices.uno }
+        }));
       }
     } catch (err) {
-      console.warn("Could not fetch serial ports:", err);
+      console.warn("Error fetching testbed configuration:", err);
     }
   };
 
-  // Connect / Disconnect Serial
-  const toggleConnection = async () => {
-    if (connected) {
+  // Connect or disconnect specific device
+  const toggleDeviceConnection = async (targetKey) => {
+    const dev = devices[targetKey];
+    if (dev.connected) {
       try {
-        await fetch('/api/disconnect', { method: 'POST' });
-        setConnected(false);
+        await fetch(`/api/disconnect?target=${targetKey}`, { method: 'POST' });
+        setDevices(prev => ({
+          ...prev,
+          [targetKey]: { ...prev[targetKey], connected: false }
+        }));
       } catch (err) {
-        console.error("Failed to disconnect:", err);
+        console.error("Disconnect error:", err);
       }
     } else {
       try {
         const res = await fetch('/api/connect', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ port: selectedPort, baud_rate: 115200 })
+          body: JSON.stringify({ target: targetKey, port: dev.port, baud_rate: 115200 })
         });
         if (res.ok) {
-          setConnected(true);
+          setDevices(prev => ({
+            ...prev,
+            [targetKey]: { ...prev[targetKey], connected: true }
+          }));
         } else {
           const errData = await res.json();
-          alert(`Connection failed: ${errData.detail || 'Check hardware port'}`);
+          alert(`Connection failed for ${dev.name}: ${errData.detail || 'Port error'}`);
         }
       } catch (err) {
-        alert(`Connection error: ${err.message}`);
+        alert(`Serial error: ${err.message}`);
       }
     }
   };
 
-  // Trigger Scenario Simulation
-  const triggerScenario = async (scenarioId) => {
+  // Execute single test scenario
+  const executeTest = async (testId) => {
     try {
-      setIsSimulating(true);
-      await fetch(`/api/simulate?scenario_id=${scenarioId}`, { method: 'POST' });
-      setTimeout(() => setIsSimulating(false), 300);
+      setIsExecuting(true);
+      const res = await fetch('/api/execute-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ test_id: testId, mode: execMode })
+      });
+      const data = await res.json();
+      setResults(prev => [data, ...prev]);
+      
+      // Refresh CSF coverage
+      const covRes = await fetch('/api/csf-coverage');
+      const covData = await covRes.json();
+      setCsfCoverage(covData);
+
+      setTimeout(() => setIsExecuting(false), 300);
     } catch (err) {
-      console.error("Simulation failed:", err);
-      setIsSimulating(false);
+      console.error("Test execution failed:", err);
+      setIsExecuting(false);
     }
   };
 
-  // Run full automated attack suite
-  const runAutoSuite = async () => {
-    for (let id = 1; id <= 6; id++) {
-      await triggerScenario(id);
-      await new Promise(r => setTimeout(r, 1200));
+  // Run all catalog scenarios sequentially
+  const runAllTests = async () => {
+    for (const sc of catalog) {
+      await executeTest(sc.id);
+      await new Promise(r => setTimeout(r, 600));
     }
   };
 
-  // Reset metrics
-  const resetMetrics = async () => {
+  // Reset metrics & results
+  const resetAll = async () => {
     try {
-      await fetch('/api/reset-metrics', { method: 'POST' });
-      setEvents([]);
+      await fetch('/api/reset', { method: 'POST' });
+      setResults([]);
       setRawLogs([]);
       setMetrics({
-        total_events: 0,
-        critical_count: 0,
-        high_count: 0,
-        medium_count: 0,
-        low_count: 0,
-        pr_count: 0,
-        de_count: 0,
-        rs_count: 0,
-        rc_count: 0,
-        mitigations_executed: 0,
+        total_tests: 0,
+        pass_count: 0,
+        fail_count: 0,
+        inconclusive_count: 0,
+        baseline_weaknesses_observed: 0,
+        hardened_mitigations_enforced: 0,
       });
+      const covRes = await fetch('/api/csf-coverage');
+      const covData = await covRes.json();
+      setCsfCoverage(covData);
     } catch (err) {
       console.error("Reset failed:", err);
     }
   };
 
-  // Initialize SSE Telemetry Stream
+  // Export Results as CSV
+  const exportCsv = () => {
+    window.location.href = '/api/export-results';
+  };
+
+  // Connect to SSE stream
   useEffect(() => {
-    fetchPorts();
+    fetchData();
 
     const evtSource = new EventSource('/api/stream');
 
@@ -156,25 +215,28 @@ export default function App() {
       try {
         const msg = JSON.parse(event.data);
         if (msg.type === 'init') {
-          setConnected(msg.payload.connected);
-          setSelectedPort(msg.payload.port);
+          if (msg.payload.devices) {
+            setDevices(prev => ({
+              ...prev,
+              baseline: { ...prev.baseline, ...msg.payload.devices.baseline },
+              hardened: { ...prev.hardened, ...msg.payload.devices.hardened },
+              uno: { ...prev.uno, ...msg.payload.devices.uno }
+            }));
+          }
           if (msg.payload.metrics) setMetrics(msg.payload.metrics);
-          if (msg.payload.recent_events) setEvents(msg.payload.recent_events);
-        } else if (msg.type === 'risk_event') {
-          setEvents(prev => [msg.payload, ...prev].slice(0, 100));
+          if (msg.payload.recent_tests) setResults(msg.payload.recent_tests);
+        } else if (msg.type === 'test_result') {
+          setResults(prev => [msg.payload, ...prev].slice(0, 100));
         } else if (msg.type === 'metrics') {
           setMetrics(msg.payload);
         } else if (msg.type === 'raw_log') {
           setRawLogs(prev => [...prev, msg.payload].slice(-300));
-        } else if (msg.type === 'status') {
-          setConnected(msg.payload.connected);
-          if (msg.payload.port) setSelectedPort(msg.payload.port);
         } else if (msg.type === 'clear') {
-          setEvents([]);
+          setResults([]);
           setRawLogs([]);
         }
       } catch (e) {
-        console.error("Error parsing SSE message:", e);
+        console.error("SSE parse error:", e);
       }
     };
 
@@ -187,9 +249,15 @@ export default function App() {
     };
   }, []);
 
+  // Filter catalog by selected layer
+  const filteredCatalog = catalog.filter(sc => {
+    if (selectedLayer === 'All') return true;
+    return sc.layer.includes(selectedLayer);
+  });
+
   return (
     <div className="app-container">
-      {/* 1. Header */}
+      {/* 1. Top Header */}
       <header className="top-header">
         <div className="brand-section">
           <div className="brand-icon">
@@ -199,305 +267,481 @@ export default function App() {
             <div className="brand-title">ZeroTrace</div>
             <div className="brand-subtitle">
               <span>Hardware-in-the-Loop Cybersecurity Testbed</span>
-              <span className="nist-pill">NIST CSF 2.0</span>
+              <span className="nist-pill">NIST CSF 2.0 Aligned</span>
             </div>
           </div>
         </div>
 
+        {/* Tab Switcher: Red (Attack Dispatch) vs Blue (Evidence & Metrics) */}
+        <div style={{ display: 'flex', gap: '6px', background: 'rgba(0,0,0,0.4)', padding: '4px', borderRadius: '10px', border: '1px solid var(--border-subtle)' }}>
+          <button 
+            className={`btn-ghost ${activeTab === 'blue' ? 'btn-primary' : ''}`}
+            onClick={() => handleTabSwitch('blue')}
+            style={{ padding: '6px 14px' }}
+          >
+            <Eye size={15} /> Blue Tab: Evidence
+          </button>
+          <button 
+            className={`btn-ghost ${activeTab === 'red' ? 'btn-danger' : ''}`}
+            onClick={() => handleTabSwitch('red')}
+            style={{ padding: '6px 14px' }}
+          >
+            <Radio size={15} /> Red Tab: Dispatch
+          </button>
+        </div>
+
         <div className="header-controls">
-          <div className="status-badge">
-            <span className={`status-dot ${connected ? 'online' : 'offline'}`}></span>
-            <span>{connected ? 'BLUE TEAM ONLINE' : 'DISCONNECTED'}</span>
-          </div>
-
-          <div className="port-selector-group">
-            <select 
-              className="port-select" 
-              value={selectedPort} 
-              onChange={(e) => setSelectedPort(e.target.value)}
-            >
-              {availablePorts.map((p, i) => (
-                <option key={i} value={p.device}>{p.device} ({p.name || 'Serial'})</option>
-              ))}
-              {!availablePorts.length && (
-                <option value={selectedPort}>{selectedPort}</option>
-              )}
-            </select>
-            <button 
-              className={connected ? "btn-danger" : "btn-primary"} 
-              onClick={toggleConnection}
-            >
-              {connected ? "Disconnect" : "Connect"}
-            </button>
-          </div>
-
+          <button className="btn-ghost" onClick={() => setShowLimitationsModal(true)}>
+            <AlertOctagon size={16} /> Limitations
+          </button>
           <button className="btn-ghost" onClick={() => setShowWiringModal(true)}>
-            <HelpCircle size={16} />
-            Wiring Pinout
+            <HelpCircle size={16} /> Wiring Guide
           </button>
         </div>
       </header>
 
-      {/* 2. Metrics Summary Grid */}
-      <section className="metrics-grid">
-        <div className="metric-card">
-          <div className="metric-card-header">
-            <span>Threats Intercepted</span>
-            <div className="metric-card-icon" style={{ background: 'rgba(239, 68, 68, 0.15)', color: 'var(--sev-critical)' }}>
-              <Flame size={20} />
+      {/* 2. Hardware Device Bar */}
+      <div style={{
+        display: 'grid', 
+        gridTemplateColumns: 'repeat(auto-fit, minmax(310px, 1fr))', 
+        gap: '14px',
+        background: 'var(--bg-card)',
+        padding: '16px 20px',
+        borderRadius: '12px',
+        border: '1px solid var(--border-subtle)'
+      }}>
+        {/* Baseline Target A: ESP8266 NodeMCU */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: '#fca5a5' }}>Target A — ESP8266 NodeMCU (Baseline)</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+              {devices.baseline.port || 'No port selected'}
+            </div>
+            <div style={{ fontSize: '10px', color: devices.baseline.connected ? '#a7f3d0' : '#f59e0b', marginTop: '2px' }}>
+              {devices.baseline.connected 
+                ? (devices.baseline.chip ? `Verified: ${devices.baseline.chip}` : 'Connected (Unverified Chip ID)') 
+                : 'Unverified Hardware (Connect USB)'}
             </div>
           </div>
-          <div className="metric-value">{metrics.total_events}</div>
-          <div className="metric-footer">
-            <span style={{ color: 'var(--sev-critical)', fontWeight: 600 }}>{metrics.critical_count} Critical</span>
-            <span>·</span>
-            <span style={{ color: 'var(--sev-high)', fontWeight: 600 }}>{metrics.high_count} High</span>
-          </div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-card-header">
-            <span>Mitigation Enforcement</span>
-            <div className="metric-card-icon" style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--rc-color)' }}>
-              <CheckCircle2 size={20} />
-            </div>
-          </div>
-          <div className="metric-value">100%</div>
-          <div className="metric-footer">
-            <span style={{ color: 'var(--rc-color)' }}>Zero-Trust Dropped / Contained</span>
-          </div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-card-header">
-            <span>NIST Protect (PR)</span>
-            <div className="metric-card-icon" style={{ background: 'var(--pr-bg)', color: 'var(--pr-color)' }}>
-              <ShieldCheck size={20} />
-            </div>
-          </div>
-          <div className="metric-value">{metrics.pr_count}</div>
-          <div className="metric-footer">
-            <span>HMAC Verify & Anti-Rollback</span>
-          </div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-card-header">
-            <span>Detect (DE) & Respond (RS)</span>
-            <div className="metric-card-icon" style={{ background: 'var(--de-bg)', color: 'var(--de-color)' }}>
-              <Zap size={20} />
-            </div>
-          </div>
-          <div className="metric-value">{metrics.de_count + metrics.rs_count}</div>
-          <div className="metric-footer">
-            <span>SBFT Traps & Zero-Wear Wipes</span>
-          </div>
-        </div>
-      </section>
-
-      {/* 3. 4-Layer Zero-Trust Framework Overview */}
-      <section className="layers-container">
-        <div className="layer-card layer-pr">
-          <div className="layer-badge badge-pr">
-            <Shield size={12} />
-            Layer 1: Secure Boot & OTA
-          </div>
-          <div className="layer-title">HMAC & Monotonic Protection</div>
-          <div className="layer-desc">Protects against OTA Man-in-the-Middle byte manipulation and firmware rollback downgrades.</div>
-          <div className="layer-specs">
-            <div className="spec-row"><span className="spec-key">NIST CSF 2.0:</span><span className="spec-val">PR.PS-01 / PR.PS-02</span></div>
-            <div className="spec-row"><span className="spec-key">Cryptographic Engine:</span><span className="spec-val">mbedtls HMAC-SHA256</span></div>
-            <div className="spec-row"><span className="spec-key">Monotonic Storage:</span><span className="spec-val">ESP32 NVS Key Counter</span></div>
-          </div>
-        </div>
-
-        <div className="layer-card layer-de">
-          <div className="layer-badge badge-de">
-            <Zap size={12} />
-            Layer 2: SBFT Anomaly Trap
-          </div>
-          <div className="layer-title">Hardware Glitch Defense</div>
-          <div className="layer-desc">Captures 8.5µs VFI pulses simulating instruction skips using dual-rail Hamming weight invariants.</div>
-          <div className="layer-specs">
-            <div className="spec-row"><span className="spec-key">NIST CSF 2.0:</span><span className="spec-val">DE.CM-01 / RS.MI-01</span></div>
-            <div className="spec-row"><span className="spec-key">Research Timing:</span><span className="spec-val">8.5µs AVR Pulse (Ruminot et al.)</span></div>
-            <div className="spec-row"><span className="spec-key">Emergency Mitigation:</span><span className="spec-val">wdt_enable(WDTO_15MS)</span></div>
-          </div>
-        </div>
-
-        <div className="layer-card layer-pr">
-          <div className="layer-badge badge-pr">
-            <Cpu size={12} />
-            Layer 3: Silicon Lockdown
-          </div>
-          <div className="layer-title">eFuse Isolation (Simulation)</div>
-          <div className="layer-desc">Permanently closes physical JTAG/SWD tap controllers at boot to defeat memory dumping attacks.</div>
-          <div className="layer-specs">
-            <div className="spec-row"><span className="spec-key">NIST CSF 2.0:</span><span className="spec-val">PR.AA-01</span></div>
-            <div className="spec-row"><span className="spec-key">Literature Base:</span><span className="spec-val">Wiersma & Pareja (2017)</span></div>
-            <div className="spec-row"><span className="spec-key">Status:</span><span className="spec-val">DISABLE_JTAG: LOCKED</span></div>
-          </div>
-        </div>
-
-        <div className="layer-card layer-rs">
-          <div className="layer-badge badge-rs">
-            <Key size={12} />
-            Layer 4: Zero-Wear Sanitization
-          </div>
-          <div className="layer-title">Sub-Millisecond Key Purge</div>
-          <div className="layer-desc">Single-pointer NVS eviction destroys sensitive root secrets in &lt;1ms without degrading flash endurance.</div>
-          <div className="layer-specs">
-            <div className="spec-row"><span className="spec-key">NIST CSF 2.0:</span><span className="spec-val">RS.MI-02</span></div>
-            <div className="spec-row"><span className="spec-key">Measured Latency:</span><span className="spec-val">&lt; 500 µs (Hardware Timer)</span></div>
-            <div className="spec-row"><span className="spec-key">Mechanism:</span><span className="spec-val">Preferences.remove()</span></div>
-          </div>
-        </div>
-      </section>
-
-      {/* 4. Interactive Attack Injector & Simulation Suite */}
-      <section className="simulation-bar">
-        <div className="simulation-header">
-          <div className="sim-title">
-            <Activity size={18} color="var(--pr-color)" />
-            <span>Red Team Attack Injector Console (1-Click Testbed Trigger)</span>
-          </div>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button className="btn-primary" onClick={runAutoSuite} disabled={isSimulating}>
-              <Play size={14} /> Run Full Attack Suite
-            </button>
-            <button className="btn-ghost" onClick={resetMetrics}>
-              <RotateCcw size={14} /> Reset
-            </button>
-          </div>
-        </div>
-
-        <div className="scenario-buttons-grid">
-          {SCENARIOS.map((s) => (
-            <button
-              key={s.id}
-              className="scenario-btn"
-              onClick={() => triggerScenario(s.id)}
-              disabled={isSimulating}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span className={`status-dot ${devices.baseline.connected ? 'online' : 'offline'}`}></span>
+            <button 
+              className={devices.baseline.connected ? "btn-danger" : "btn-ghost"}
+              style={{ padding: '4px 10px', fontSize: '11px' }}
+              onClick={() => toggleDeviceConnection('baseline')}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className="scenario-id">Scenario #{s.id}</span>
-                <span className="tag-badge">{s.tag}</span>
-              </div>
-              <div className="scenario-name">{s.name}</div>
-              <div className="scenario-tag">{s.desc}</div>
+              {devices.baseline.connected ? 'Disconnect' : 'Connect'}
             </button>
-          ))}
+          </div>
         </div>
-      </section>
 
-      {/* 5. Live Telemetry & Serial Console Grid */}
-      <section className="main-content-grid">
-        {/* Left Column: Parsed Structured NIST Events */}
-        <div className="panel-card">
-          <div className="panel-header">
-            <div className="panel-title-group">
-              <ShieldAlert size={18} color="var(--pr-color)" />
-              <span>NIST CSF 2.0 Evaluator Telemetry</span>
+        {/* Hardened Target B: ESP32 DevKit */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--pr-color)' }}>Target B — ESP32 DevKit (Hardened)</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+              {devices.hardened.port || 'No port selected'}
             </div>
-            <div className="panel-actions">
-              <span className="tag-badge">{events.length} Events Logged</span>
+            <div style={{ fontSize: '10px', color: devices.hardened.connected ? '#a7f3d0' : '#f59e0b', marginTop: '2px' }}>
+              {devices.hardened.connected 
+                ? (devices.hardened.chip ? `Verified: ${devices.hardened.chip}` : 'Connected (Unverified Chip Model)') 
+                : 'Unverified Hardware (Connect USB)'}
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span className={`status-dot ${devices.hardened.connected ? 'online' : 'offline'}`}></span>
+            <button 
+              className={devices.hardened.connected ? "btn-danger" : "btn-ghost"}
+              style={{ padding: '4px 10px', fontSize: '11px' }}
+              onClick={() => toggleDeviceConnection('hardened')}
+            >
+              {devices.hardened.connected ? 'Disconnect' : 'Connect'}
+            </button>
+          </div>
+        </div>
+
+        {/* Arduino Uno Monitor (Optional) */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: '#a7f3d0' }}>Uno Monitor (Hardware-Assisted)</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+              {devices.uno.connected ? (devices.uno.port || 'USB') : 'Uno monitor offline (Optional)'}
+            </div>
+            <div style={{ fontSize: '10px', color: devices.uno.connected ? '#a7f3d0' : 'var(--text-muted)', marginTop: '2px' }}>
+              {devices.uno.connected ? 'Connected (ATmega328P)' : 'Standby / Disconnected'}
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span className={`status-dot ${devices.uno.connected ? 'online' : 'offline'}`}></span>
+            <button 
+              className={devices.uno.connected ? "btn-danger" : "btn-ghost"}
+              style={{ padding: '4px 10px', fontSize: '11px' }}
+              onClick={() => toggleDeviceConnection('uno')}
+            >
+              {devices.uno.connected ? 'Disconnect' : 'Connect'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Two-Laptop Presentation & Active Mode Banner */}
+      <div style={{
+        background: 'rgba(0, 0, 0, 0.35)',
+        border: '1px solid var(--border-subtle)',
+        borderRadius: '8px',
+        padding: '8px 16px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        fontSize: '12px'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontWeight: 700, color: (devices.baseline.connected && devices.hardened.connected) ? 'var(--rc-color)' : '#fbbf24' }}>
+            {(devices.baseline.connected && devices.hardened.connected) 
+              ? '● MODE: HARDWARE-IN-THE-LOOP (Real ESP8266 + ESP32 Active)' 
+              : '○ MODE: SOFTWARE SIMULATION (Level 0 - Hardware Disconnected)'}
+          </span>
+        </div>
+        <div style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+          Laptop 2 (Blue Dashboard LAN URL): <strong>http://&lt;LAPTOP1_IP&gt;:5173/?view=blue</strong>
+        </div>
+      </div>
+
+      {/* VIEW: RED TAB (Attack Dispatch & Test Trigger) */}
+      {activeTab === 'red' && (
+        <section className="simulation-bar">
+          <div className="simulation-header">
+            <div>
+              <div className="sim-title">
+                <Radio size={18} color="var(--sev-critical)" />
+                <span>Red Team Test Dispatcher (Dual-Target Controller)</span>
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                Dispatches identical attack scenarios to both Baseline and Hardened microcontrollers.
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+              <select 
+                className="port-select" 
+                value={execMode} 
+                onChange={(e) => setExecMode(e.target.value)}
+                style={{ background: 'rgba(0,0,0,0.5)', borderRadius: '6px', border: '1px solid var(--border-subtle)' }}
+              >
+                <option value="auto">Mode: Auto (Hardware if connected)</option>
+                <option value="simulate">Mode: Force Simulation (Level 0)</option>
+                <option value="real">Mode: Real Hardware Required</option>
+              </select>
+
+              <button className="btn-primary" onClick={runAllTests} disabled={isExecuting}>
+                <Play size={14} /> Run Full Test Suite
+              </button>
+              <button className="btn-ghost" onClick={resetAll}>
+                <RotateCcw size={14} /> Reset
+              </button>
             </div>
           </div>
 
-          <div className="events-list">
-            {events.length === 0 ? (
-              <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                No events recorded yet. Connect Blue Team ESP32 or click an attack scenario button above to trigger telemetry.
-              </div>
-            ) : (
-              events.map((evt) => (
-                <div key={evt.id} className={`event-card sev-${evt.severity.toLowerCase()}`}>
-                  <div className="event-top">
-                    <span className="severity-pill">{evt.severity}</span>
-                    <span className="event-timestamp">{evt.timestamp?.slice(11, 19)}</span>
-                  </div>
+          {/* Layer Filter Selector */}
+          <div style={{ display: 'flex', gap: '8px', padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+            {['All', 'Layer 1', 'Layer 2', 'Layer 3', 'Layer 4'].map((layer) => (
+              <button
+                key={layer}
+                className={selectedLayer === layer ? "btn-primary" : "btn-ghost"}
+                style={{ padding: '4px 12px', fontSize: '12px' }}
+                onClick={() => setSelectedLayer(layer)}
+              >
+                {layer}
+              </button>
+            ))}
+          </div>
 
-                  <div className="event-threat-name">{evt.threat_name}</div>
-
-                  <div className="event-meta-tags">
-                    <span className="tag-badge">{evt.layer}</span>
-                    <span className="tag-badge" style={{ color: 'var(--pr-color)' }}>NIST: {evt.nist_subcategory}</span>
-                  </div>
-
-                  <div className="event-metric-box">
-                    <strong>[METRIC]</strong> {evt.metric}
-                  </div>
-
-                  <div className="event-mitigation-box">
-                    <CheckCircle2 size={14} style={{ flexShrink: 0, marginTop: '2px' }} />
-                    <span><strong>[MITIGATION]</strong> {evt.mitigation}</span>
-                  </div>
+          {/* Scenario Grid */}
+          <div className="scenario-buttons-grid">
+            {filteredCatalog.map((sc) => (
+              <button
+                key={sc.id}
+                className="scenario-btn"
+                onClick={() => executeTest(sc.id)}
+                disabled={isExecuting}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span className="scenario-id">{sc.id}</span>
+                  <span className="tag-badge" style={{ fontSize: '10px' }}>{sc.csf_category}</span>
                 </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Right Column: Raw Blue Team Serial Terminal */}
-        <div className="panel-card">
-          <div className="panel-header">
-            <div className="panel-title-group">
-              <Terminal size={18} color="#a3e635" />
-              <span>Blue Team Serial Stream (115200 Baud)</span>
-            </div>
-            <div className="panel-actions">
-              <button 
-                className="btn-ghost" 
-                style={{ padding: '4px 8px', fontSize: '11px' }}
-                onClick={() => setAutoScroll(!autoScroll)}
-              >
-                {autoScroll ? 'Auto-Scroll ON' : 'Auto-Scroll OFF'}
+                <div className="scenario-name">{sc.name}</div>
+                <div className="scenario-tag">{sc.description}</div>
+                <div style={{ marginTop: '6px', fontSize: '10px', color: '#93c5fd', fontFamily: 'var(--font-mono)' }}>
+                  Level: {sc.evidence_level}
+                </div>
               </button>
-              <button 
-                className="btn-ghost" 
-                style={{ padding: '4px 8px', fontSize: '11px' }}
-                onClick={() => setRawLogs([])}
-              >
-                Clear
-              </button>
-            </div>
+            ))}
           </div>
+        </section>
+      )}
 
-          <div className="terminal-body">
-            {rawLogs.length === 0 ? (
-              <div style={{ color: '#4b5563' }}>
-                // ZeroTrace hardware stream listening on {selectedPort}...
-                // Waiting for Blue Team ESP32 serial output.
+      {/* VIEW: BLUE TAB (Evidence, Side-by-Side Comparison & NIST CSF 2.0 Coverage) */}
+      {activeTab === 'blue' && (
+        <>
+          {/* Top KPI Metrics */}
+          <section className="metrics-grid">
+            <div className="metric-card">
+              <div className="metric-card-header">
+                <span>Baseline Weaknesses Observed</span>
+                <div className="metric-card-icon" style={{ background: 'rgba(239, 68, 68, 0.15)', color: 'var(--sev-critical)' }}>
+                  <Flame size={20} />
+                </div>
               </div>
-            ) : (
-              rawLogs.map((line, idx) => {
-                const isRisk = line.includes('[RISK ASSESSED');
-                const isSim = line.includes('[SIMULATED HW]');
+              <div className="metric-value">{metrics.baseline_weaknesses_observed}</div>
+              <div className="metric-footer">
+                <span style={{ color: 'var(--sev-critical)', fontWeight: 600 }}>Unchecked Tampering / Rollback / Leak</span>
+              </div>
+            </div>
+
+            <div className="metric-card">
+              <div className="metric-card-header">
+                <span>Hardened Mitigations Enforced</span>
+                <div className="metric-card-icon" style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--rc-color)' }}>
+                  <CheckCircle2 size={20} />
+                </div>
+              </div>
+              <div className="metric-value">{metrics.hardened_mitigations_enforced}</div>
+              <div className="metric-footer">
+                <span style={{ color: 'var(--rc-color)' }}>100% Defense Success Rate</span>
+              </div>
+            </div>
+
+            <div className="metric-card">
+              <div className="metric-card-header">
+                <span>Total Scenarios Executed</span>
+                <div className="metric-card-icon" style={{ background: 'var(--pr-bg)', color: 'var(--pr-color)' }}>
+                  <Activity size={20} />
+                </div>
+              </div>
+              <div className="metric-value">{metrics.total_tests}</div>
+              <div className="metric-footer">
+                <span>Side-by-side Dual Evaluation</span>
+              </div>
+            </div>
+
+            <div className="metric-card">
+              <div className="metric-card-header">
+                <span>NIST CSF 2.0 Coverage</span>
+                <div className="metric-card-icon" style={{ background: 'var(--de-bg)', color: 'var(--de-color)' }}>
+                  <ShieldCheck size={20} />
+                </div>
+              </div>
+              <div className="metric-value">{csfCoverage ? `${csfCoverage.coverage_percentage}%` : '0%'}</div>
+              <div className="metric-footer">
+                <span>{csfCoverage ? `${csfCoverage.covered_categories} of ${csfCoverage.total_categories} Categories Covered` : 'Dynamic'}</span>
+              </div>
+            </div>
+          </section>
+
+          {/* Side-by-Side Dual Evaluation Table */}
+          <div className="panel-card" style={{ height: 'auto', maxHeight: '550px' }}>
+            <div className="panel-header">
+              <div className="panel-title-group">
+                <Layers size={18} color="var(--pr-color)" />
+                <span>Side-by-Side Dual Evaluation (Baseline vs Hardened)</span>
+              </div>
+              <div className="panel-actions">
+                <button className="btn-ghost" onClick={exportCsv} style={{ fontSize: '12px' }}>
+                  <Download size={14} /> Export CSV
+                </button>
+              </div>
+            </div>
+
+            <div style={{ overflowX: 'auto', padding: '12px' }}>
+              <table className="wiring-table" style={{ fontSize: '12px', margin: 0 }}>
+                <thead>
+                  <tr>
+                    <th>Scenario</th>
+                    <th>Layer</th>
+                    <th>NIST CSF</th>
+                    <th>Target A: Baseline (Observed)</th>
+                    <th>Target B: Hardened (Observed)</th>
+                    <th>Evidence Level</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} style={{ textAlign: 'center', padding: '28px', color: 'var(--text-muted)' }}>
+                        No evaluation results recorded yet. Switch to the <strong>Red Tab</strong> or click "Run Full Test Suite" to execute tests.
+                      </td>
+                    </tr>
+                  ) : (
+                    results.map((r) => (
+                      <tr key={r.id}>
+                        <td>
+                          <strong>{r.test_id}</strong>: {r.name}
+                        </td>
+                        <td><span className="tag-badge">{r.layer.split(' ')[0]}</span></td>
+                        <td><span className="tag-badge" style={{ color: 'var(--pr-color)' }}>{r.csf_category}</span></td>
+                        <td>
+                          <span className={`severity-pill ${r.status_baseline === 'FAIL' ? 'sev-critical' : 'sev-low'}`} style={{ marginRight: '6px' }}>
+                            {r.observed_baseline}
+                          </span>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>({r.details_baseline})</span>
+                        </td>
+                        <td>
+                          <span className={`severity-pill ${r.status_hardened === 'PASS' ? 'sev-low' : 'sev-critical'}`} style={{ marginRight: '6px' }}>
+                            {r.observed_hardened}
+                          </span>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>({r.details_hardened})</span>
+                        </td>
+                        <td>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: '#93c5fd' }}>
+                            {r.evidence_level}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Dynamic NIST CSF 2.0 Coverage Matrix */}
+          <div className="panel-card" style={{ height: 'auto' }}>
+            <div className="panel-header">
+              <div className="panel-title-group">
+                <ShieldCheck size={18} color="var(--rc-color)" />
+                <span>NIST CSF 2.0 Dynamic Category Coverage (Computed from Execution)</span>
+              </div>
+              <div className="panel-actions">
+                <span className="tag-badge">All 22 Categories Assessed</span>
+              </div>
+            </div>
+
+            <div style={{ padding: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '10px' }}>
+              {csfCoverage && Object.values(csfCoverage.categories).map((cat) => {
+                const isCovered = cat.status === 'Covered';
                 return (
-                  <div key={idx} className={`log-line ${isRisk ? 'risk' : ''} ${isSim ? 'sim' : ''}`}>
-                    {line}
+                  <div 
+                    key={cat.code} 
+                    style={{
+                      background: isCovered ? 'rgba(0, 240, 255, 0.08)' : 'rgba(0,0,0,0.3)',
+                      border: `1px solid ${isCovered ? 'rgba(0, 240, 255, 0.35)' : 'var(--border-subtle)'}`,
+                      borderRadius: '8px',
+                      padding: '10px 12px'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 700, fontSize: '13px', color: isCovered ? 'var(--pr-color)' : 'var(--text-secondary)' }}>
+                        {cat.code}
+                      </span>
+                      <span className={`severity-pill ${isCovered ? 'sev-low' : ''}`} style={{ fontSize: '9px' }}>
+                        {cat.status}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      {cat.name}
+                    </div>
+                    {isCovered && (
+                      <div style={{ marginTop: '6px', fontSize: '10px', color: '#a7f3d0', fontFamily: 'var(--font-mono)' }}>
+                        Tests: {cat.tests_executed.join(', ')} ({cat.evidence_levels.join(', ')})
+                      </div>
+                    )}
                   </div>
                 );
-              })
-            )}
-            <div ref={terminalEndRef} />
+              })}
+            </div>
+          </div>
+
+          {/* Raw Telemetry Terminal */}
+          <div className="panel-card" style={{ height: '350px' }}>
+            <div className="panel-header">
+              <div className="panel-title-group">
+                <Terminal size={18} color="#a3e635" />
+                <span>Real-Time Ingest Stream (115200 Baud / Structured Logs)</span>
+              </div>
+              <div className="panel-actions">
+                <button className="btn-ghost" style={{ padding: '3px 8px', fontSize: '11px' }} onClick={() => setAutoScroll(!autoScroll)}>
+                  {autoScroll ? 'Auto-Scroll ON' : 'Auto-Scroll OFF'}
+                </button>
+                <button className="btn-ghost" style={{ padding: '3px 8px', fontSize: '11px' }} onClick={() => setRawLogs([])}>
+                  Clear
+                </button>
+              </div>
+            </div>
+
+            <div className="terminal-body">
+              {rawLogs.length === 0 ? (
+                <div style={{ color: '#4b5563' }}>
+                  // Listening on active ports... Run tests in the Red Tab to view streaming telemetry.
+                </div>
+              ) : (
+                rawLogs.map((line, idx) => {
+                  const isRisk = line.includes('[RISK ASSESSED');
+                  return (
+                    <div key={idx} className={`log-line ${isRisk ? 'risk' : ''}`}>
+                      {line}
+                    </div>
+                  );
+                })
+              )}
+              <div ref={terminalEndRef} />
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* 3. Limitations Modal */}
+      {showLimitationsModal && (
+        <div className="modal-overlay" onClick={() => setShowLimitationsModal(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#fbbf24' }}>
+                <AlertOctagon size={20} /> ZeroTrace Scope & Limitations
+              </div>
+              <button className="btn-ghost" onClick={() => setShowLimitationsModal(false)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ fontSize: '13px', lineHeight: '1.6', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <p>
+                <strong>1. No Zero-Day Discovery:</strong> ZeroTrace is a demonstration testbed illustrating known architectural failure modes and mitigations. We do not claim discovery of new silicon or cryptographic zero-days.
+              </p>
+              <p>
+                <strong>2. Simulated Fault Pulses:</strong> Fault injection tests are software-simulated or GPIO pulse triggers. We do not perform lab-grade voltage drop crowbars or EMFI.
+              </p>
+              <p>
+                <strong>3. Flash Remnants:</strong> Key zeroization purges volatile memory and unlinks directory metadata. Because external SPI flash encryption is inactive in this demo, raw silicon cells may retain remnants until overwritten.
+              </p>
+              <p>
+                <strong>4. Serial vs Wireless Transport:</strong> Firmware updates are transferred over wired USB serial, referred to in documentation as the "serial update channel."
+              </p>
+              <p>
+                <strong>5. NIST Wording Policy:</strong> ZeroTrace is <em>mapped to and aligned with</em> NIST CSF 2.0 and NIST SP 800-193. It is not officially certified or endorsed by NIST.
+              </p>
+            </div>
+
+            <div style={{ textAlign: 'right', marginTop: '20px' }}>
+              <button className="btn-primary" onClick={() => setShowLimitationsModal(false)}>
+                Acknowledge & Close
+              </button>
+            </div>
           </div>
         </div>
-      </section>
+      )}
 
-      {/* 6. Hardware Wiring & Pinout Modal */}
+      {/* 4. Wiring Guide Modal */}
       {showWiringModal && (
         <div className="modal-overlay" onClick={() => setShowWiringModal(false)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <div className="modal-title">Hardware-in-the-Loop Wiring Pinout</div>
+              <div className="modal-title">ZeroTrace Hardware Interconnect Guide</div>
               <button className="btn-ghost" onClick={() => setShowWiringModal(false)}>
                 <X size={18} />
               </button>
             </div>
 
             <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
-              Connect all three boards before flashing and launching the backend:
+              ZeroTrace uses direct USB serial connections for the main demo. Keep the following electrical safety rules in mind:
             </p>
 
             <table className="wiring-table">
@@ -511,54 +755,35 @@ export default function App() {
               </thead>
               <tbody>
                 <tr>
-                  <td><strong>Common Ground</strong></td>
-                  <td>ESP32 #1 (Red) GND</td>
-                  <td>ESP32 #2 (Blue) GND + Arduino GND</td>
-                  <td>0V (Shared reference)</td>
+                  <td><strong>Main Demo Transport</strong></td>
+                  <td>ESP32 Target A & Target B</td>
+                  <td>MacBook USB Ports</td>
+                  <td>115200 Baud USB-UART</td>
                 </tr>
                 <tr>
-                  <td><strong>OTA Attack TX -&gt; RX</strong></td>
-                  <td>ESP32 #1 (Red) GPIO 17 (TX2)</td>
-                  <td>ESP32 #2 (Blue) GPIO 16 (RX2)</td>
-                  <td>9600 Baud, 3.3V UART</td>
+                  <td><strong>Optional Uno Monitor</strong></td>
+                  <td>Arduino Uno USB</td>
+                  <td>MacBook USB Port</td>
+                  <td>115200 Baud USB-UART</td>
                 </tr>
                 <tr>
-                  <td><strong>Defense Response RX &lt;- TX</strong></td>
-                  <td>ESP32 #1 (Red) GPIO 16 (RX2)</td>
-                  <td>ESP32 #2 (Blue) GPIO 17 (TX2)</td>
-                  <td>9600 Baud, 3.3V UART</td>
+                  <td><strong>Optional Cyber-Physical Line</strong></td>
+                  <td>ESP32 #1 GPIO 17 (TX2)</td>
+                  <td>ESP32 #2 GPIO 16 (RX2)</td>
+                  <td>3.3V UART (Avoid GPIO 6-11!)</td>
                 </tr>
                 <tr>
-                  <td><strong>VFI Glitch Pulse</strong></td>
-                  <td>ESP32 #1 (Red) GPIO 25</td>
-                  <td>Arduino Uno Pin 2 (INT0)</td>
-                  <td>8.5 µs Pulse (3.3V into 5V VIH)</td>
+                  <td><strong>5V Uno TX to ESP32 RX</strong></td>
+                  <td>Arduino Pin 1 (5V TX)</td>
+                  <td>ESP32 RX Pin (3.3V)</td>
+                  <td><strong>MANDATORY 1kΩ / 2kΩ Divider</strong></td>
                 </tr>
               </tbody>
             </table>
 
-            <div className="ascii-box">
-{`+-----------------------+                    +-----------------------+
-|  ESP32 #1 (RED TEAM)  |                    | ESP32 #2 (BLUE TEAM)  |
-|                       |                    |                       |
-|   GPIO 17 (TX2) ------>--------------------> GPIO 16 (RX2)         |
-|   GPIO 16 (RX2) <-----<--------------------< GPIO 17 (TX2)         |
-|   GPIO 25 (PULSE) --+ |                    |                       |
-|   GND --------------|-+                    | GND ------------------+
-+---------------------|-+                    +-----------------------+
-                      |                                  |
-                      +----------+                       | Common GND
-                                 |                       |
-                    +------------V-----------------------+--+
-                    | ARDUINO UNO (VFI TARGET)              |
-                    | Digital Pin 2 (INT0)                  |
-                    | GND ----------------------------------+
-                    +---------------------------------------+`}
-            </div>
-
-            <div style={{ textAlign: 'right' }}>
+            <div style={{ textAlign: 'right', marginTop: '16px' }}>
               <button className="btn-primary" onClick={() => setShowWiringModal(false)}>
-                Close Pinout Guide
+                Close Guide
               </button>
             </div>
           </div>

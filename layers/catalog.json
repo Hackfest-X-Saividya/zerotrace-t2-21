@@ -1,0 +1,105 @@
+{
+  "version": "2.0.0",
+  "framework": "NIST CSF 2.0 Aligned Zero-Trust Testbed",
+  "scenarios": [
+    {
+      "id": "L1-APPROVED",
+      "layer": "Layer 1 (Secure Boot & OTA)",
+      "name": "Authentic Firmware Package Update",
+      "description": "Authentic firmware update bearing valid HMAC-SHA256 signature and passing health self-test flag.",
+      "expected_baseline": "ACCEPTED",
+      "expected_hardened": "ACCEPTED",
+      "csf_function": "PR",
+      "csf_category": "PR.PS-01",
+      "evidence_level": "software-level"
+    },
+    {
+      "id": "L1-MODIFIED",
+      "layer": "Layer 1 (Secure Boot & OTA)",
+      "name": "Payload Tampering (MITM Modification)",
+      "description": "Firmware binary modified in transit. Baseline uses simple checksum and accepts; Hardened verifies HMAC-SHA256 and drops.",
+      "expected_baseline": "ACCEPTED_WEAKNESS",
+      "expected_hardened": "REJECTED_CRYPTO_FAIL",
+      "csf_function": "PR",
+      "csf_category": "PR.PS-01",
+      "evidence_level": "software-level"
+    },
+    {
+      "id": "L1-ROLLBACK",
+      "layer": "Layer 1 (Secure Boot & OTA)",
+      "name": "Firmware Downgrade / Rollback Attack",
+      "description": "Outdated v0 binary with legitimate signature. Baseline accepts; Hardened enforces monotonic NVS counter policy.",
+      "expected_baseline": "ACCEPTED_WEAKNESS",
+      "expected_hardened": "REJECTED_DOWNGRADE",
+      "csf_function": "PR",
+      "csf_category": "PR.PS-02",
+      "evidence_level": "software-level"
+    },
+    {
+      "id": "L1-BOOTFAIL-REVERT",
+      "layer": "Layer 1 (Watchdog Rollback)",
+      "name": "Buggy Probationary Boot Failure",
+      "description": "Inbound update fails probationary self-test. Baseline hangs/crashes; Hardened triggers watchdog reversion to Golden Image.",
+      "expected_baseline": "HANGS_OR_CRASHES",
+      "expected_hardened": "WATCHDOG_ROLLBACK",
+      "csf_function": "RC",
+      "csf_category": "RC.RP-01",
+      "evidence_level": "software-level"
+    },
+    {
+      "id": "L4-KEY-ZEROIZE",
+      "layer": "Layer 4 (Zero-Wear Sanitization)",
+      "name": "Cryptographic Key Erasure & Zeroization",
+      "description": "Command to purge master HMAC key. Baseline removes key flag but leaves key bytes in RAM; Hardened zeroizes memory and unlinks NVS entry.",
+      "expected_baseline": "POINTER_REMOVED_KEY_LEAKED",
+      "expected_hardened": "ZEROIZED_AND_UNLINKED",
+      "csf_function": "RS",
+      "csf_category": "RS.MI-02",
+      "evidence_level": "software-level"
+    },
+    {
+      "id": "L2-SKIP-SIM",
+      "layer": "Layer 2 (Software-Based Fault Tolerance)",
+      "name": "Simulated Fault Pulse (Instruction Skip)",
+      "description": "GPIO trigger simulates instruction skip altering register state. Baseline allows corrupted state; Hardened traps anomaly with dual-rail invariant.",
+      "expected_baseline": "INSTRUCTION_SKIPPED",
+      "expected_hardened": "ANOMALY_TRAPPED_RESET",
+      "csf_function": "DE",
+      "csf_category": "DE.CM-01",
+      "evidence_level": "simulation"
+    },
+    {
+      "id": "L2-UNROLL",
+      "layer": "Layer 2 (Software-Based Fault Tolerance)",
+      "name": "Software Loop Unroll Step Skip Test",
+      "description": "Executes 10-step unrolled counter. Baseline lacks verification; Hardened tests accumulator invariants and detects skipped iterations.",
+      "expected_baseline": "UNCHECKED_CORRUPTION",
+      "expected_hardened": "INVARIANT_TRAP",
+      "csf_function": "DE",
+      "csf_category": "DE.CM-01",
+      "evidence_level": "software-level"
+    },
+    {
+      "id": "L2-AUTH",
+      "layer": "Layer 2 (Software-Based Fault Tolerance)",
+      "name": "Conditional Branch Flag Corruption Test",
+      "description": "Simulates authorization branch flip. Baseline executes single conditional check; Hardened uses multi-step hardened check to prevent bypass.",
+      "expected_baseline": "UNAUTH_BYPASS",
+      "expected_hardened": "DOUBLE_CHECK_TRAP",
+      "csf_function": "DE",
+      "csf_category": "DE.CM-01",
+      "evidence_level": "software-level"
+    },
+    {
+      "id": "L3-POLICY-SIM",
+      "layer": "Layer 3 (Silicon Lockdown)",
+      "name": "Simulated Debug-Lock State Verification",
+      "description": "Evaluates debug-lock posture. Target A (ESP8266) lacks silicon eFuse/debug lockout hardware; Target B (ESP32) simulates redundant policy register verification.",
+      "expected_baseline": "ABSENT_HARDWARE_DEFENSE",
+      "expected_hardened": "SIMULATED_LOCK_ENFORCED",
+      "csf_function": "PR",
+      "csf_category": "PR.AA-01",
+      "evidence_level": "simulation"
+    }
+  ]
+}
