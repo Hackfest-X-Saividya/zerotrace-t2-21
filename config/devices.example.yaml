@@ -1,5 +1,5 @@
 # ZeroTrace Example Device Configuration
-# Copy this file to config/devices.local.yaml (git-ignored) and customize your COM ports.
+# Serial ports are dynamically discovered and verified via firmware handshake.
 
 network:
   host: "127.0.0.1"  # Default localhost (single laptop). Use 0.0.0.0 only with explicit --lan flag.
@@ -13,7 +13,7 @@ devices:
   baseline:
     name: "Target A — ESP8266 NodeMCU (Baseline)"
     architecture: "esp8266"
-    port: "/dev/cu.usbserial-0001"
+    port: null
     baud_rate: 115200
     timeout: 1.0
     role: "Seeded Weakness Evaluation (Application-Level Checks)"
@@ -21,14 +21,14 @@ devices:
   hardened:
     name: "Target B — ESP32 DevKit (Hardened)"
     architecture: "esp32"
-    port: "/dev/cu.usbserial-0002"
+    port: null
     baud_rate: 115200
     timeout: 1.0
     role: "NIST CSF 2.0 Hardened Defense Enforcement"
 
   uno:
     name: "Arduino Uno Target (Optional Hardware-Assisted Monitor)"
-    port: "/dev/cu.usbmodem14101"
+    port: null
     baud_rate: 115200
     timeout: 1.0
     optional: true

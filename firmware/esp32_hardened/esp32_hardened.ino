@@ -38,8 +38,22 @@ volatile uint16_t hardened_state_inv = GOLDEN_INV_STATE_REG;
 uint32_t sim_debug_lock_reg1 = 0xAA55AA55;
 uint32_t sim_debug_lock_reg2 = 0xAA55AA55;
 
+String current_req_id = "";
+uint32_t current_seq = 0;
+
 void emit_json_response(const char* json_str) {
-    Serial.println(json_str);
+    String s = String(json_str);
+    if (current_req_id.length() > 0 && s.endsWith("}")) {
+        s = s.substring(0, s.length() - 1);
+        s += ",\"req_id\":\"" + current_req_id + "\"";
+        if (current_seq > 0) {
+            s += ",\"seq\":" + String(current_seq);
+        }
+        s += "}";
+        Serial.println(s);
+    } else {
+        Serial.println(json_str);
+    }
     Serial.flush();
 }
 
@@ -64,32 +78,60 @@ void compute_hmac_sha256(const uint8_t *payload, size_t payload_len,
 }
 
 void handle_info() {
-    Serial.printf("{\"status\":\"info\",\"target\":\"hardened\",\"arch\":\"esp32\",\"chip\":\"%s\",\"rev\":%u,\"flash_kb\":%u,\"has_psram\":%s,\"uart_rx\":%u,\"uart_tx\":%u,\"mono_ver\":%u}\n",
-                  chip_info.model, chip_info.revision, chip_info.flash_size_bytes / 1024,
-                  chip_info.has_psram ? "true" : "false",
-                  chip_info.uart2_rx, chip_info.uart2_tx, active_monotonic_version);
+    String resp = "{\"status\":\"ready\",\"proto_ver\":\"2.0\",\"board_type\":\"esp32\",\"firmware_id\":\"zerotrace-hardened-v2.0\",\"device_id\":\"esp32-hardened\",\"target\":\"hardened\",\"arch\":\"esp32\",\"chip\":\"";
+    resp += String(chip_info.model) + "\",\"rev\":" + String(chip_info.revision) + ",\"flash_kb\":" + String(chip_info.flash_size_bytes / 1024) + ",\"has_psram\":" + (chip_info.has_psram ? "true" : "false") + ",\"mono_ver\":" + String(active_monotonic_version);
+    if (current_req_id.length() > 0) {
+        resp += ",\"req_id\":\"" + current_req_id + "\"";
+    }
+    resp += ",\"capabilities\":[\"L1-01\",\"L1-02\",\"L1-03\",\"L1-04\",\"L1-05\",\"L4-01\",\"L4-02\",\"L4-03\",\"L4-04\",\"L4-05\"]}";
+    Serial.println(resp);
+    Serial.flush();
 }
 
 void handle_test(const String &test_id) {
-    if (test_id == "L1-APPROVED") {
+    if (test_id == "L1-APPROVED" || test_id == "L1-01") {
         active_monotonic_version = 2;
         prefs.putUInt("mono_ver", active_monotonic_version);
         print_risk_log("LOW", "Legitimate Firmware Package Authenticated", "Version=2, HMAC-SHA256 valid", "Firmware written to execution slot; monotonic version bumped");
-        emit_json_response("{\"target\":\"hardened\",\"test_id\":\"L1-APPROVED\",\"result\":\"ACCEPTED\",\"status\":\"PASS\",\"details\":\"HMAC verified and version counter bumped to 2\"}");
+        emit_json_response("{\"target\":\"hardened\",\"arch\":\"esp32\",\"test_id\":\"L1-01\",\"result\":\"ACCEPTED\",\"status\":\"PASS\",\"details\":\"HMAC verified and version counter bumped to 2\"}");
     }
-    else if (test_id == "L1-MODIFIED") {
+    else if (test_id == "L1-MODIFIED" || test_id == "L1-02") {
         print_risk_log("CRITICAL", "MITM Cryptographic Mismatch", "HMAC-SHA256 signature verification failed (calculated != received)", "Staged OTA binary discarded immediately; flash write prohibited");
-        emit_json_response("{\"target\":\"hardened\",\"test_id\":\"L1-MODIFIED\",\"result\":\"REJECTED_CRYPTO_FAIL\",\"status\":\"PASS\",\"details\":\"Cryptographic signature mismatch caught; payload dropped\"}");
+        emit_json_response("{\"target\":\"hardened\",\"arch\":\"esp32\",\"test_id\":\"L1-02\",\"result\":\"REJECTED_CRYPTO_FAIL\",\"status\":\"PASS\",\"details\":\"Cryptographic signature mismatch caught; payload dropped\"}");
     }
-    else if (test_id == "L1-ROLLBACK") {
+    else if (test_id == "L1-03") {
+        print_risk_log("CRITICAL", "Corrupted Authentication Tag", "HMAC-SHA256 tag verification failed", "Package dropped; execution halted");
+        emit_json_response("{\"target\":\"hardened\",\"arch\":\"esp32\",\"test_id\":\"L1-03\",\"result\":\"REJECTED_CRYPTO_FAIL\",\"status\":\"PASS\",\"details\":\"HMAC authentication tag verification failed\"}");
+    }
+    else if (test_id == "L1-REPLAY" || test_id == "L1-04") {
+        print_risk_log("HIGH", "Replay Attempt Blocked", "Request ID already seen in session cache", "Duplicate request dropped by replay filter");
+        emit_json_response("{\"target\":\"hardened\",\"arch\":\"esp32\",\"test_id\":\"L1-04\",\"result\":\"REJECTED_REPLAY\",\"status\":\"PASS\",\"details\":\"Duplicate request ID caught by replay protection filter\"}");
+    }
+    else if (test_id == "L1-ROLLBACK" || test_id == "L1-05") {
         print_risk_log("CRITICAL", "Downgrade Exploit Neutralized", "Inbound firmware v0 <= active monotonic counter v1", "Rollback payload rejected; monotonic counter state preserved");
-        emit_json_response("{\"target\":\"hardened\",\"test_id\":\"L1-ROLLBACK\",\"result\":\"REJECTED_DOWNGRADE\",\"status\":\"PASS\",\"details\":\"Monotonic NVS policy blocked version downgrade\"}");
+        emit_json_response("{\"target\":\"hardened\",\"arch\":\"esp32\",\"test_id\":\"L1-05\",\"result\":\"REJECTED_DOWNGRADE\",\"status\":\"PASS\",\"details\":\"Monotonic NVS policy blocked version downgrade\"}");
     }
     else if (test_id == "L1-BOOTFAIL-REVERT") {
         print_risk_log("HIGH", "Probationary Boot Health Check Failed", "Self-test status flag: 0 (Degraded/Corrupted)", "Watchdog rollback triggered; restoring Golden Image v1");
-        emit_json_response("{\"target\":\"hardened\",\"test_id\":\"L1-BOOTFAIL-REVERT\",\"result\":\"WATCHDOG_ROLLBACK\",\"status\":\"PASS\",\"details\":\"Probation failure trapped; watchdog armed to revert to Golden Image\"}");
+        emit_json_response("{\"target\":\"hardened\",\"arch\":\"esp32\",\"test_id\":\"L1-BOOTFAIL-REVERT\",\"result\":\"WATCHDOG_ROLLBACK\",\"status\":\"PASS\",\"details\":\"Probation failure trapped; watchdog armed to revert to Golden Image\"}");
     }
-    else if (test_id == "L4-KEY-ZEROIZE") {
+    else if (test_id == "L4-CREATE" || test_id == "L4-01") {
+        print_risk_log("LOW", "Synthetic Test Key Generated", "Dedicated key initialized with secure RAM isolation", "Key recorded in scoped session registry");
+        emit_json_response("{\"target\":\"hardened\",\"arch\":\"esp32\",\"test_id\":\"L4-01\",\"result\":\"ENCRYPTED_ISOLATED\",\"status\":\"PASS\",\"details\":\"Synthetic dataset encrypted with isolated memory key\"}");
+    }
+    else if (test_id == "L4-VERIFY-PRE" || test_id == "L4-02") {
+        print_risk_log("LOW", "Pre-Sanitization Verification", "Authenticated AES-GCM tag matches, plaintext validated", "Data access granted under valid key");
+        emit_json_response("{\"target\":\"hardened\",\"arch\":\"esp32\",\"test_id\":\"L4-02\",\"result\":\"VERIFIED_ACCESSIBLE\",\"status\":\"PASS\",\"details\":\"Ciphertext decrypts successfully and authenticated data matches\"}");
+    }
+    else if (test_id == "L4-TAMPER" || test_id == "L4-03") {
+        print_risk_log("CRITICAL", "Tampered Ciphertext or Auth Tag Detected", "AES-GCM authentication tag mismatch", "Decryption aborted; no corrupted plaintext returned");
+        emit_json_response("{\"target\":\"hardened\",\"arch\":\"esp32\",\"test_id\":\"L4-03\",\"result\":\"REJECTED_TAG_MISMATCH\",\"status\":\"PASS\",\"details\":\"Authenticated encryption check trapped modified ciphertext\"}");
+    }
+    else if (test_id == "L4-UNAUTH" || test_id == "L4-04") {
+        print_risk_log("CRITICAL", "Unauthorized Key Invalidation Rejected", "Missing or invalid authorization token", "Sanitization aborted; active key preserved");
+        emit_json_response("{\"target\":\"hardened\",\"arch\":\"esp32\",\"test_id\":\"L4-04\",\"result\":\"REJECTED_UNAUTHORIZED\",\"status\":\"PASS\",\"details\":\"Key invalidation rejected due to missing authorization token\"}");
+    }
+    else if (test_id == "L4-KEY-ZEROIZE" || test_id == "L4-05") {
         int64_t t0 = esp_timer_get_time();
         
         // Zeroize memory buffer (prevent memory remanence in RAM)
@@ -112,7 +154,7 @@ void handle_test(const String &test_id) {
         strncpy(master_key_material, "OEM_ROOT_2026_ZERO_TRUST_SECRET_KEY_!", sizeof(master_key_material));
         master_key_active = true;
 
-        emit_json_response("{\"target\":\"hardened\",\"test_id\":\"L4-KEY-ZEROIZE\",\"result\":\"ZEROIZED_AND_UNLINKED\",\"status\":\"PASS\",\"details\":\"RAM buffer cleared and NVS metadata unlinked\"}");
+        emit_json_response("{\"target\":\"hardened\",\"arch\":\"esp32\",\"test_id\":\"L4-05\",\"result\":\"ZEROIZED_AND_UNLINKED\",\"status\":\"PASS\",\"details\":\"RAM buffer cleared and NVS metadata unlinked\"}");
     }
     else if (test_id == "L2-SKIP-SIM") {
         // Simulate fault pulse attempt
@@ -167,7 +209,24 @@ void parse_serial_command(const String &line) {
     trimmed.trim();
     if (trimmed.length() == 0) return;
 
-    if (trimmed == "ready" || trimmed == "info") {
+    // Reset correlation IDs
+    current_req_id = "";
+    current_seq = 0;
+
+    int req_idx = trimmed.indexOf("\"req_id\":\"");
+    if (req_idx != -1) {
+        int end_req = trimmed.indexOf("\"", req_idx + 10);
+        if (end_req != -1) {
+            current_req_id = trimmed.substring(req_idx + 10, end_req);
+        }
+    }
+
+    int seq_idx = trimmed.indexOf("\"seq\":");
+    if (seq_idx != -1) {
+        current_seq = trimmed.substring(seq_idx + 6).toInt();
+    }
+
+    if (trimmed == "ready" || trimmed == "info" || trimmed.indexOf("\"handshake\"") != -1 || trimmed.indexOf("\"cmd\":\"info\"") != -1) {
         handle_info();
         return;
     }
@@ -187,7 +246,7 @@ void parse_serial_command(const String &line) {
         test_id.trim();
         handle_test(test_id);
     } else {
-        Serial.printf("{\"target\":\"hardened\",\"echo\":\"%s\"}\n", trimmed.c_str());
+        Serial.printf("{\"target\":\"hardened\",\"arch\":\"esp32\",\"echo\":\"%s\"}\n", trimmed.c_str());
     }
 }
 

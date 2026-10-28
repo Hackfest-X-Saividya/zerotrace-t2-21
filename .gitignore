@@ -12,3 +12,5 @@ config/devices.local.yaml
 *.key
 .DS_Store
 .env
+.pytest_cache/
+.backup_checkpoint*/
