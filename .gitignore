@@ -1,0 +1,14 @@
+# ZeroTrace .gitignore
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+node_modules/
+dist/
+*.local.*
+config/devices.local.yaml
+*.secret
+*.key
+.DS_Store
+.env
