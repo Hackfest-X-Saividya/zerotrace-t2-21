@@ -55,7 +55,6 @@ export default function Navigation({
     { id: 'layer4', label: 'Layer 4: Sanitization', icon: Key },
     { id: 'events', label: 'Live Events', icon: Terminal },
     { id: 'audit', label: 'Audit History', icon: FileText },
-    { id: 'devices', label: 'Device Status', icon: Server, count: connectedCount },
     { id: 'reports', label: 'Test Reports', icon: Database },
     { id: 'settings', label: 'Diagnostics', icon: Settings }
   ];
@@ -91,44 +90,8 @@ export default function Navigation({
           </div>
         </div>
 
-        {/* Hardware Presence Chips & Theme Switcher */}
+        {/* Top Action Controls & Theme Switcher */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          {/* Target A Status */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            fontSize: '11px',
-            padding: '5px 10px',
-            borderRadius: '6px',
-            background: 'var(--bg-subtle)',
-            border: '1px solid var(--border-subtle)'
-          }}>
-            <span className={`status-dot ${devices?.baseline?.connected ? 'online' : 'offline'}`} />
-            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Target A (ESP8266):</span>
-            <span style={{ color: devices?.baseline?.connected ? '#059669' : 'var(--text-muted)' }}>
-              {devices?.baseline?.connected ? (devices?.baseline?.chip || 'Connected') : 'Disconnected'}
-            </span>
-          </div>
-
-          {/* Target B Status */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            fontSize: '11px',
-            padding: '5px 10px',
-            borderRadius: '6px',
-            background: 'var(--bg-subtle)',
-            border: '1px solid var(--border-subtle)'
-          }}>
-            <span className={`status-dot ${devices?.hardened?.connected ? 'online' : 'offline'}`} />
-            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Target B (ESP32):</span>
-            <span style={{ color: devices?.hardened?.connected ? '#059669' : 'var(--text-muted)' }}>
-              {devices?.hardened?.connected ? (devices?.hardened?.chip || 'Connected') : 'Disconnected'}
-            </span>
-          </div>
-
           {/* Theme Switcher Button */}
           <button
             className="btn-ghost"

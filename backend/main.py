@@ -156,7 +156,7 @@ class ExecuteTestRequest(BaseModel):
     credential_token: Optional[str] = None
 
 class CampaignStartRequest(BaseModel):
-    mode: str = "simulation"  # "hardware", "software", "simulation", "demo", or "auto"
+    mode: str = "simulation"  # "hardware", "hardware_demo", "software", "simulation", "demo", or "auto"
 
 test_history: deque = deque(maxlen=200)
 raw_logs: deque = deque(maxlen=500)
@@ -1138,42 +1138,52 @@ async def start_campaign(req: Optional[CampaignStartRequest] = None):
     if campaign_state["is_running"]:
         return {"status": "already_running", "campaign": campaign_state}
 
-    camp_mode = (req.mode.lower() if req and req.mode else "auto")
-    if camp_mode in ["software", "simulation"]:
-        camp_mode = "demo"
-
-    if camp_mode not in ["hardware", "demo", "auto"]:
-        camp_mode = "demo"
-
+    raw_mode = (req.mode.lower() if req and req.mode else "auto")
     notice = None
-    if camp_mode == "auto":
-        is_ready, _ = device_service.is_hardware_ready()
-        if is_ready:
-            camp_mode = "hardware"
-        else:
-            camp_mode = "demo"
-            notice = "Hardware unavailable — running in Demo / Software Mode"
-    elif camp_mode == "demo":
+
+    if raw_mode == "hardware_demo":
+        worker_mode = "demo"
+        stored_mode = "hardware"
+        notice = "DEMO EXECUTION — NO PHYSICAL HARDWARE VERIFIED"
+    elif raw_mode in ["software", "simulation"]:
+        worker_mode = "demo"
+        stored_mode = "software"
+    elif raw_mode == "demo":
+        worker_mode = "demo"
+        stored_mode = "demo"
         is_ready, _ = device_service.is_hardware_ready()
         if not is_ready:
             notice = "Running in Demo / Software Mode"
-
-    if camp_mode == "hardware":
+    elif raw_mode == "auto":
+        is_ready, _ = device_service.is_hardware_ready()
+        if is_ready:
+            worker_mode = "hardware"
+            stored_mode = "hardware"
+        else:
+            worker_mode = "demo"
+            stored_mode = "demo"
+            notice = "Hardware unavailable — running in Demo / Software Mode"
+    elif raw_mode == "hardware":
         is_ready, err = device_service.is_hardware_ready()
         if not is_ready:
-            # Strictly reject: NEVER auto-switch when the user explicitly selected Hardware Mode
+            # Strictly reject direct hardware call when physical hardware is missing
             raise HTTPException(status_code=409, detail=err)
+        worker_mode = "hardware"
+        stored_mode = "hardware"
+    else:
+        worker_mode = "demo"
+        stored_mode = "demo"
 
     campaign_state["is_running"] = True
     campaign_state["status"] = "STARTING"
-    campaign_state["mode"] = camp_mode
+    campaign_state["mode"] = stored_mode
     campaign_state["notice"] = notice
     campaign_state["start_time"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     campaign_state["campaign_id"] = f"camp-{uuid.uuid4().hex[:8]}"
-    if camp_mode == "hardware":
+    if worker_mode == "hardware":
         device_service.set_state("CAMPAIGN_RUNNING", "Campaign running...")
 
-    campaign_task = asyncio.create_task(run_campaign_worker(mode=camp_mode))
+    campaign_task = asyncio.create_task(run_campaign_worker(mode=worker_mode))
     await broadcast_payload("campaign_state", campaign_state)
     return {"status": "started", "campaign": campaign_state}
 

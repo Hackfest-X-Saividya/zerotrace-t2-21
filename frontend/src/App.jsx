@@ -14,7 +14,6 @@ import Layer3Section from './components/Layer3Section';
 import Layer4Section from './components/Layer4Section';
 import LiveEventsSection from './components/LiveEventsSection';
 import AuditHistorySection from './components/AuditHistorySection';
-import DeviceStatusSection from './components/DeviceStatusSection';
 import TestReportsSection from './components/TestReportsSection';
 import SettingsSection from './components/SettingsSection';
 
@@ -555,16 +554,6 @@ export default function App() {
         {activeSection === 'audit' && (
           <AuditHistorySection
             auditTrail={auditTrail}
-          />
-        )}
-
-        {activeSection === 'devices' && (
-          <DeviceStatusSection
-            devices={devices}
-            availablePorts={availablePorts}
-            onToggleConnect={handleToggleConnect}
-            onPortChange={handlePortChange}
-            onRefreshPorts={handleRefreshPorts}
           />
         )}
 

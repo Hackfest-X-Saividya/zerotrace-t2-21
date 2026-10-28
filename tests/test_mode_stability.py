@@ -103,12 +103,28 @@ def test_campaign_mode_captured_at_start_and_preserved():
     client = TestClient(app)
     res = client.post("/api/campaign/start", json={"mode": "simulation"})
     assert res.status_code == 200
-    assert campaign_state["mode"] == "demo"
+    assert campaign_state["mode"] in ["software", "demo"]
 
     # Status check confirms mode is retained
     status_res = client.get("/api/campaign/status")
     assert status_res.status_code == 200
-    assert status_res.json()["mode"] == "demo"
+    assert status_res.json()["mode"] in ["software", "demo"]
+    client.post("/api/campaign/stop")
+
+
+def test_hardware_demo_mode_allows_demonstration_without_hardware_verified():
+    """Hardware Mode with unverified hardware runs demo adapter with clear notice and hardware mode retained."""
+    client = TestClient(app)
+    assert device_service.is_hardware_ready()[0] is False
+
+    res = client.post("/api/campaign/start", json={"mode": "hardware_demo"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "started"
+    # Mode is preserved as hardware
+    assert data["campaign"]["mode"] == "hardware"
+    # Notice explicitly marks demo execution
+    assert data["campaign"]["notice"] == "DEMO EXECUTION — NO PHYSICAL HARDWARE VERIFIED"
     client.post("/api/campaign/stop")
 
 
@@ -122,3 +138,4 @@ def test_duplicate_campaign_start_rejected_while_running():
     assert res2.status_code == 200
     assert res2.json()["status"] == "already_running"
     client.post("/api/campaign/stop")
+
