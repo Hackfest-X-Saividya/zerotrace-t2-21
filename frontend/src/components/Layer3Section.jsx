@@ -19,13 +19,14 @@ import {
 export default function Layer3Section({ onExecuteLayer3, isExecuting }) {
   const [status, setStatus] = useState(null);
   const [selectedScenario, setSelectedScenario] = useState('read_only_audit');
+  const [results, setResults] = useState({});
   const [lastResult, setLastResult] = useState(null);
 
   const scenarios = [
     {
       id: 'read_only_audit',
       code: 'L3-01',
-      name: 'Read-Only Silicon Security Audit',
+      title: 'Read-Only Silicon Security Audit',
       csf: 'PR.PS-01',
       risk: 'LOW',
       desc: 'Inspects hardware eFuse blocks, debug port lock status, and flash encryption registers without burning bits.'
@@ -33,7 +34,7 @@ export default function Layer3Section({ onExecuteLayer3, isExecuting }) {
     {
       id: 'policy_violation_sim',
       code: 'L3-02',
-      name: 'Simulated JTAG Probe Attachment',
+      title: 'Simulated JTAG Probe Attachment',
       csf: 'PR.AA-01',
       risk: 'HIGH',
       desc: 'Simulates physical debugger attachment to hardware debug pins; verifies debug isolation policy and silent disconnect.'
@@ -41,7 +42,7 @@ export default function Layer3Section({ onExecuteLayer3, isExecuting }) {
     {
       id: 'unauthorized_access',
       code: 'L3-03',
-      name: 'Unauthorized Silicon Operation Test',
+      title: 'Unauthorized Silicon Operation Test',
       csf: 'PR.AC-01',
       risk: 'HIGH',
       desc: 'Attempts administrative silicon reconfiguration without valid hardware access token; verifies access denial.'
@@ -63,12 +64,16 @@ export default function Layer3Section({ onExecuteLayer3, isExecuting }) {
 
   const handleRun = async (scId) => {
     const sc = scId || selectedScenario;
+    setSelectedScenario(sc);
     if (typeof onExecuteLayer3 !== 'function') {
       alert('Layer 3 execution handler not configured.');
       return;
     }
     const res = await onExecuteLayer3(sc);
-    setLastResult(res);
+    if (res) {
+      setResults((prev) => ({ ...prev, [sc]: res }));
+      setLastResult(res);
+    }
     fetchStatus();
   };
 
@@ -76,352 +81,289 @@ export default function Layer3Section({ onExecuteLayer3, isExecuting }) {
     window.location.href = `/api/evidence/export?format=${format}`;
   };
 
+  // Real summary counts
+  const totalScenarios = scenarios.length;
+  const completedCount = Object.keys(results).length;
+  const passedCount = Object.values(results).filter(
+    (r) => r.hardened?.status === 'PASS' || r.status === 'PASS' || r.verdict === 'PASS' || r.defense_enforced
+  ).length;
+  const failedCount = completedCount - passedCount;
+
   const currentScenarioObj = scenarios.find((s) => s.id === selectedScenario) || scenarios[0];
+  const activeRes = results[selectedScenario] || lastResult;
+
+  const getStatusBadge = (scId) => {
+    const res = results[scId];
+    if (!res) {
+      return (
+        <span style={{ fontSize: '10px', fontWeight: 600, padding: '2px 7px', borderRadius: '4px', background: 'var(--bg-subtle)', color: 'var(--text-muted)' }}>
+          Pending
+        </span>
+      );
+    }
+    const passed = res.hardened?.status === 'PASS' || res.status === 'PASS' || res.verdict === 'PASS' || res.defense_enforced;
+    return (
+      <span style={{
+        fontSize: '10px',
+        fontWeight: 700,
+        padding: '2px 7px',
+        borderRadius: '4px',
+        background: passed ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+        color: passed ? 'var(--rc-color)' : 'var(--sev-critical)'
+      }}>
+        {passed ? 'Passed' : 'Failed'}
+      </span>
+    );
+  };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
-      {/* 1. Header Card */}
-      <div className="panel-card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '10px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{
-              width: '40px',
-              height: '40px',
-              borderRadius: '10px',
-              background: 'var(--rc-bg)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--rc-color)'
-            }}>
-              <Shield size={22} />
-            </div>
-            <div>
-              <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                Layer 3 — Silicon Lockdown, eFuse Integrity & Debug Port Security
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* 1. Header */}
+      <div className="panel-card" style={{ padding: '16px 20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Shield size={18} color="var(--rc-color)" />
+              <h2 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+                Layer 3 — Device Security Policies
               </h2>
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                Hardware Root-of-Trust, JTAG Physical Interface Lock, and Hardware Flash Encryption Audit
-              </div>
             </div>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '4px 0 0 0', lineHeight: 1.4 }}>
+              Reviews available device-level security policies and hardware protection checks.
+            </p>
           </div>
-          <span className="csf-tag pr" style={{ fontSize: '11px', padding: '4px 10px' }}>
+          <span className="csf-tag pr" style={{ fontSize: '10px', padding: '3px 8px' }}>
             NIST CSF PR.AA-01 / PR.PS-01
           </span>
         </div>
-
-        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-          Layer 3 audits silicon hardware protections. Target A (ESP8266) lacks hardware eFuses and physical debug locks,
-          leaving firmware vulnerable to flash extraction. Target B (ESP32) provides hardware cryptographic key storage,
-          eFuse burning mechanisms, and physical JTAG port lockdown.
-        </p>
       </div>
 
-      {/* Safety Notice Banner */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '10px',
-        padding: '12px 16px',
-        borderRadius: '8px',
-        background: 'rgba(217, 119, 6, 0.08)',
-        border: '1px solid rgba(217, 119, 6, 0.25)',
-        fontSize: '12px',
-        color: 'var(--de-color)'
-      }}>
-        <Info size={16} style={{ flexShrink: 0 }} />
-        <span>
-          <strong>Non-Destructive Read-Only Audit:</strong> ZeroTrace conducts silicon policy audits without permanently burning physical eFuse bits
-          or modifying target board hardware state.
-        </span>
+      {/* 2. Summary Bar */}
+      <div className="unified-summary-bar">
+        <div className="unified-summary-pill">
+          <span className="lbl">Total Scenarios</span>
+          <span className="val">{totalScenarios}</span>
+        </div>
+        <div className="unified-summary-pill">
+          <span className="lbl">Completed</span>
+          <span className="val" style={{ color: 'var(--rc-color)' }}>{completedCount}</span>
+        </div>
+        <div className="unified-summary-pill">
+          <span className="lbl">Passed Scenarios</span>
+          <span className="val" style={{ color: 'var(--rc-color)' }}>{passedCount}</span>
+        </div>
+        <div className="unified-summary-pill">
+          <span className="lbl">Failed Scenarios</span>
+          <span className="val" style={{ color: failedCount > 0 ? 'var(--sev-critical)' : 'var(--text-muted)' }}>{failedCount}</span>
+        </div>
       </div>
 
-      {/* 2. Side-by-Side Silicon Posture Comparison */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '14px' }}>
-        {/* Baseline Silicon Card */}
+      {/* 3. Compact 3-Stage Flow */}
+      <div className="panel-card" style={{ padding: '14px 18px' }}>
+        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' }}>
+          Silicon Policy Verification Flow
+        </div>
+        <div className="unified-pipeline-bar">
+          <div className="unified-pipeline-step">
+            <span className="num">1</span>
+            <span className="title">Policy selected</span>
+          </div>
+          <div className="unified-pipeline-step">
+            <span className="num">2</span>
+            <span className="title">Security condition checked</span>
+          </div>
+          <div className="unified-pipeline-step">
+            <span className="num">3</span>
+            <span className="title">Policy result recorded</span>
+          </div>
+        </div>
+      </div>
+
+      {/* 4. Side-by-Side Silicon Posture Comparison */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
         <div style={{
-          background: 'rgba(239, 68, 68, 0.06)',
-          border: '1px solid rgba(239, 68, 68, 0.25)',
-          padding: '16px',
-          borderRadius: '10px'
+          background: 'rgba(239, 68, 68, 0.04)',
+          border: '1px solid rgba(239, 68, 68, 0.2)',
+          padding: '12px 14px',
+          borderRadius: '8px'
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '14px', fontWeight: 800, color: 'var(--sev-critical)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--sev-critical)' }}>
               Target A: ESP8266 (Baseline)
             </span>
-            <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--sev-critical)', padding: '2px 8px', borderRadius: '4px', background: 'rgba(239, 68, 68, 0.15)' }}>
+            <span style={{ fontSize: '9px', fontWeight: 800, color: 'var(--sev-critical)', padding: '2px 6px', borderRadius: '4px', background: 'rgba(239, 68, 68, 0.12)' }}>
               UNPROTECTED
             </span>
           </div>
-          <ul style={{ fontSize: '12px', color: 'var(--text-secondary)', paddingLeft: '16px', lineHeight: 1.7 }}>
-            <li><strong>eFuse Controller:</strong> Absent in silicon architecture</li>
-            <li><strong>Hardware Secure Boot:</strong> No silicon ROM signature check</li>
-            <li><strong>Hardware Flash Encryption:</strong> Not supported (plain-text flash)</li>
-            <li><strong>JTAG Port Lockdown:</strong> Not supported (pins always open)</li>
-            <li><strong style={{ color: 'var(--sev-critical)' }}>Risk Posture:</strong> High vulnerability to bus sniffing</li>
-          </ul>
+          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            <div>• <strong>eFuse Controller:</strong> Absent in silicon architecture</div>
+            <div>• <strong>Hardware Secure Boot:</strong> No silicon ROM signature check</div>
+            <div>• <strong>Flash Encryption:</strong> Not supported (plain-text flash)</div>
+            <div>• <strong>JTAG Port Lockdown:</strong> Not supported (pins always open)</div>
+          </div>
         </div>
 
-        {/* Hardened Silicon Card */}
         <div style={{
-          background: 'rgba(16, 185, 129, 0.06)',
-          border: '1px solid rgba(16, 185, 129, 0.25)',
-          padding: '16px',
-          borderRadius: '10px'
+          background: 'rgba(16, 185, 129, 0.04)',
+          border: '1px solid rgba(16, 185, 129, 0.2)',
+          padding: '12px 14px',
+          borderRadius: '8px'
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '14px', fontWeight: 800, color: 'var(--rc-color)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--rc-color)' }}>
               Target B: ESP32 (Hardened)
             </span>
-            <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--rc-color)', padding: '2px 8px', borderRadius: '4px', background: 'rgba(16, 185, 129, 0.15)' }}>
-              SILICON HARDENED
+            <span style={{ fontSize: '9px', fontWeight: 800, color: 'var(--rc-color)', padding: '2px 6px', borderRadius: '4px', background: 'rgba(16, 185, 129, 0.12)' }}>
+              HARDENED
             </span>
           </div>
-          <ul style={{ fontSize: '12px', color: 'var(--text-secondary)', paddingLeft: '16px', lineHeight: 1.7 }}>
-            <li><strong>eFuse Controller:</strong> Present (Blocks 0..3 with write-protection)</li>
-            <li><strong>Secure Boot v2:</strong> RSA-3072 / ECDSA ROM signature verification</li>
-            <li><strong>Flash Encryption:</strong> Hardware AES-256 transparent engine</li>
-            <li><strong>JTAG Port Lockdown:</strong> Hardened policy simulation (LOCKED)</li>
-            <li><strong style={{ color: 'var(--rc-color)' }}>Risk Posture:</strong> High physical tamper resistance</li>
-          </ul>
-        </div>
-      </div>
-
-      {/* 3. Live Silicon Registers Inspector */}
-      <div className="panel-card">
-        <h3 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '14px' }}>
-          Live Silicon Posture & Registers Inspector
-        </h3>
-
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-          gap: '12px'
-        }}>
-          <div style={{ padding: '14px', borderRadius: '8px', background: 'var(--bg-inset)', border: '1px solid var(--border-subtle)' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>JTAG Policy Posture</div>
-            <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--rc-color)', fontFamily: 'var(--font-mono)', marginTop: '4px' }}>
-              {status?.jtag_policy || 'LOCKED'}
-            </div>
-            <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-              Hardware probe attachment disabled
-            </div>
-          </div>
-
-          <div style={{ padding: '14px', borderRadius: '8px', background: 'var(--bg-inset)', border: '1px solid var(--border-subtle)' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Silicon Secure Boot</div>
-            <div style={{ fontSize: '16px', fontWeight: 800, color: status?.secure_boot ? 'var(--rc-color)' : 'var(--de-color)', fontFamily: 'var(--font-mono)', marginTop: '4px' }}>
-              {status?.secure_boot ? 'ENABLED' : 'SIMULATED_ACTIVE'}
-            </div>
-            <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-              ROM signature verification gate
-            </div>
-          </div>
-
-          <div style={{ padding: '14px', borderRadius: '8px', background: 'var(--bg-inset)', border: '1px solid var(--border-subtle)' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Flash Encryption Engine</div>
-            <div style={{ fontSize: '16px', fontWeight: 800, color: status?.flash_encryption ? 'var(--rc-color)' : 'var(--pr-color)', fontFamily: 'var(--font-mono)', marginTop: '4px' }}>
-              {status?.flash_encryption ? 'AES-256-XTS' : 'HARDWARE_READY'}
-            </div>
-            <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-              On-the-fly hardware decryption
-            </div>
-          </div>
-
-          <div style={{ padding: '14px', borderRadius: '8px', background: 'var(--bg-inset)', border: '1px solid var(--border-subtle)' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Anti-Rollback Enforcement</div>
-            <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--rc-color)', fontFamily: 'var(--font-mono)', marginTop: '4px' }}>
-              ENFORCED
-            </div>
-            <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-              Monotonic hardware counters
-            </div>
+          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            <div>• <strong>eFuse Controller:</strong> Present (Blocks 0..3 write-protected)</div>
+            <div>• <strong>Secure Boot v2:</strong> RSA-3072 / ECDSA ROM signature verification</div>
+            <div>• <strong>Flash Encryption:</strong> Hardware AES-256 transparent engine</div>
+            <div>• <strong>JTAG Port Lockdown:</strong> Hardened policy simulation (LOCKED)</div>
           </div>
         </div>
       </div>
 
-      {/* 4. Scenario Selector */}
-      <div className="panel-card">
-        <h3 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '14px' }}>
-          Execute Layer 3 Silicon Security Checks
-        </h3>
+      {/* 5. Scenarios Grid (Unified 3-column / responsive) */}
+      <div className="panel-card" style={{ padding: '16px 20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+          <h3 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+            Device Security Policies (3 Scenarios)
+          </h3>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+            Click card or Run button to execute
+          </span>
+        </div>
 
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-          gap: '10px',
-          marginBottom: '16px'
-        }}>
+        <div className="unified-scenario-grid">
           {scenarios.map((sc) => {
             const isSelected = selectedScenario === sc.id;
             return (
               <div
                 key={sc.id}
+                className="unified-card"
                 onClick={() => setSelectedScenario(sc.id)}
                 style={{
-                  padding: '12px 14px',
-                  borderRadius: '8px',
-                  border: isSelected ? '1px solid var(--rc-color)' : '1px solid var(--border-subtle)',
-                  background: isSelected ? 'var(--rc-bg)' : 'var(--bg-subtle)',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease'
+                  borderColor: isSelected ? 'var(--rc-color)' : undefined,
+                  background: isSelected ? 'rgba(16, 185, 129, 0.04)' : undefined,
+                  cursor: 'pointer'
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{
-                      fontSize: '10px',
-                      fontFamily: 'var(--font-mono)',
-                      fontWeight: 800,
-                      padding: '1px 5px',
-                      borderRadius: '4px',
-                      background: 'rgba(0,0,0,0.15)',
-                      color: 'var(--text-muted)'
-                    }}>
-                      {sc.code}
-                    </span>
-                    <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                      {sc.name}
-                    </span>
-                  </div>
-                  <span style={{
-                    fontSize: '9px',
-                    fontWeight: 800,
-                    padding: '2px 6px',
-                    borderRadius: '4px',
-                    background: sc.risk === 'HIGH' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-                    color: sc.risk === 'HIGH' ? 'var(--sev-critical)' : 'var(--rc-color)'
-                  }}>
-                    {sc.risk}
-                  </span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span className="unified-card-id">{sc.code}</span>
+                  {getStatusBadge(sc.id)}
                 </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+
+                <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.3 }}>
+                  {sc.code} — {sc.title}
+                </div>
+
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.4, flex: 1 }}>
                   {sc.desc}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px', borderTop: '1px solid var(--border-subtle)', paddingTop: '6px' }}>
+                  <span style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)' }}>{sc.csf}</span>
+                  <button
+                    className="btn-ghost"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRun(sc.id);
+                    }}
+                    disabled={isExecuting}
+                    style={{ fontSize: '10px', padding: '3px 8px', height: '24px' }}
+                  >
+                    <Play size={10} /> Run
+                  </button>
                 </div>
               </div>
             );
           })}
         </div>
-
-        <button
-          className="btn-primary"
-          onClick={() => handleRun()}
-          disabled={isExecuting}
-          style={{
-            width: '100%',
-            justifyContent: 'center',
-            padding: '12px 20px',
-            fontSize: '13px',
-            fontWeight: 700,
-            background: 'var(--rc-color)',
-            borderColor: 'var(--rc-color)'
-          }}
-        >
-          <Play size={16} />
-          {isExecuting ? 'Running Silicon Audit...' : `Execute Check: ${currentScenarioObj.name} (${currentScenarioObj.code})`}
-        </button>
       </div>
 
-      {/* 5. Results & Comparative Outcome */}
-      {lastResult && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
-          <div className="panel-card">
-            <h4 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '10px' }}>
-              Silicon Posture Outcome: {lastResult.scenario}
+      {/* 6. Structured Results Area */}
+      {activeRes && (
+        <div className="panel-card" style={{ padding: '16px 20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+            <h4 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+              Audit Finding: {currentScenarioObj.code} — {currentScenarioObj.title}
             </h4>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px' }}>
-              <div style={{
-                padding: '10px 12px',
-                borderRadius: '6px',
-                background: 'rgba(239, 68, 68, 0.08)',
-                border: '1px solid rgba(239, 68, 68, 0.2)'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontWeight: 700, color: 'var(--sev-critical)' }}>Target A (ESP8266 Baseline)</span>
-                  <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--sev-critical)' }}>
-                    {lastResult.baseline?.status || 'FAIL'}
-                  </span>
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                  Observed: <strong style={{ color: 'var(--text-primary)' }}>{lastResult.baseline?.observed || 'SILICON_VULNERABLE'}</strong>
-                </div>
-                <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  {lastResult.baseline?.details}
-                </div>
-              </div>
-
-              <div style={{
-                padding: '10px 12px',
-                borderRadius: '6px',
-                background: 'rgba(16, 185, 129, 0.08)',
-                border: '1px solid rgba(16, 185, 129, 0.2)'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontWeight: 700, color: 'var(--rc-color)' }}>Target B (ESP32 Hardened)</span>
-                  <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--rc-color)' }}>
-                    {lastResult.hardened?.status || 'PASS'}
-                  </span>
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                  Observed: <strong style={{ color: 'var(--text-primary)' }}>{lastResult.hardened?.observed || 'SILICON_LOCKED'}</strong>
-                </div>
-                <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  {lastResult.hardened?.details}
-                </div>
-              </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Verification Status:</span>
+              {getStatusBadge(selectedScenario)}
             </div>
           </div>
 
-          <div className="panel-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <h4 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                  NIST CSF 2.0 Assessment
-                </h4>
-                <span className="csf-tag pr" style={{ fontSize: '10px' }}>
-                  {currentScenarioObj.csf}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
+            {/* Vulnerable Baseline */}
+            <div style={{
+              padding: '12px 14px',
+              borderRadius: '8px',
+              background: 'rgba(239, 68, 68, 0.05)',
+              border: '1px solid rgba(239, 68, 68, 0.2)'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--sev-critical)' }}>
+                  Target A (ESP8266 Baseline)
+                </span>
+                <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--sev-critical)' }}>
+                  {activeRes.baseline?.status || 'FAIL'}
                 </span>
               </div>
-              <p style={{ fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                {currentScenarioObj.desc} Silicon root-of-trust asserts immutable protection against physical inspection.
-              </p>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                <strong>Expected:</strong> Unrestricted physical debug & lack of silicon encryption
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                <strong>Observed:</strong> <span style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{activeRes.baseline?.observed || 'WEAKNESS_OBSERVED'}</span>
+              </div>
+              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                {activeRes.baseline?.details || 'JTAG interface active without hardware lockout pins.'}
+              </div>
             </div>
 
+            {/* Hardened Target */}
             <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(3, 1fr)',
-              gap: '8px',
-              borderTop: '1px solid var(--border-subtle)',
-              paddingTop: '10px'
+              padding: '12px 14px',
+              borderRadius: '8px',
+              background: 'rgba(16, 185, 129, 0.05)',
+              border: '1px solid rgba(16, 185, 129, 0.2)'
             }}>
-              <div>
-                <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Root of Trust</div>
-                <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)' }}>eFuse Block 0</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--rc-color)' }}>
+                  Target B (ESP32 Hardened)
+                </span>
+                <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--rc-color)' }}>
+                  {activeRes.hardened?.status || 'PASS'}
+                </span>
               </div>
-              <div>
-                <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>JTAG Lock</div>
-                <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--rc-color)' }}>Enforced</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                <strong>Expected:</strong> Silicon lockdown enforced; debug access denied
               </div>
-              <div>
-                <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Containment</div>
-                <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--rc-color)' }}>100% Policy-Safe</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                <strong>Observed:</strong> <span style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{activeRes.hardened?.observed || 'DEFENSE_ENFORCED'}</span>
+              </div>
+              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                {activeRes.hardened?.details || 'Hardware eFuse audit confirmed JTAG debug port lockdown.'}
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* 6. Evidence Export Toolbar */}
+      {/* 7. Multi-Format Evidence Export Toolbar */}
       <div className="panel-card" style={{
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
         flexWrap: 'wrap',
-        gap: '12px'
+        gap: '12px',
+        padding: '14px 20px'
       }}>
         <div>
-          <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+          <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}>
             Export Layer 3 Evidence Package
           </div>
           <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
@@ -430,14 +372,14 @@ export default function Layer3Section({ onExecuteLayer3, isExecuting }) {
         </div>
 
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <button className="btn-ghost" onClick={() => handleExport('csv')} style={{ fontSize: '11px', padding: '6px 12px' }}>
-            <Download size={13} /> Export CSV
+          <button className="btn-ghost" onClick={() => handleExport('csv')} style={{ fontSize: '11px', padding: '5px 10px' }}>
+            <Download size={12} /> Export CSV
           </button>
-          <button className="btn-ghost" onClick={() => handleExport('json')} style={{ fontSize: '11px', padding: '6px 12px' }}>
-            <FileText size={13} /> Export JSON
+          <button className="btn-ghost" onClick={() => handleExport('json')} style={{ fontSize: '11px', padding: '5px 10px' }}>
+            <FileText size={12} /> Export JSON
           </button>
-          <button className="btn-ghost" onClick={() => handleExport('pdf')} style={{ fontSize: '11px', padding: '6px 12px' }}>
-            <FileText size={13} /> Export PDF Report
+          <button className="btn-ghost" onClick={() => handleExport('pdf')} style={{ fontSize: '11px', padding: '5px 10px' }}>
+            <FileText size={12} /> Export PDF Report
           </button>
         </div>
       </div>

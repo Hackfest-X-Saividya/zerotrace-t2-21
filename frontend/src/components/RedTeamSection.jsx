@@ -211,20 +211,25 @@ export default function RedTeamSection({
 
   const displayedCatalog = getFilteredCatalog();
 
-  // Stage highlighting for Live Flow
+  // 5 compact stages aligned with Section 3 requirements
   const stages = [
-    { id: 'REQUEST_SENT', label: '1. Test Dispatched', sub: 'MacBook Orchestrator' },
-    { id: 'TARGET_RESPONSE', label: '2. Target Evaluation', sub: 'Baseline vs Hardened' },
-    { id: 'BLUE_VALIDATION', label: '3. Blue Validation', sub: 'Cryptographic Policy' },
-    { id: 'VERDICT', label: '4. Verdict Enforced', sub: 'Accept / Reject' },
-    { id: 'EVIDENCE_SAVED', label: '5. Evidence Saved', sub: 'Local Audit Log' },
+    { id: 'REQUEST_SENT', label: '1. Test started', sub: 'MacBook Orchestrator' },
+    { id: 'TARGET_RESPONSE', label: '2. Target checked', sub: 'Baseline vs Hardened' },
+    { id: 'BLUE_VALIDATION', label: '3. Defence evaluated', sub: 'Cryptographic Policy' },
+    { id: 'VERDICT', label: '4. Result verified', sub: 'Policy Enforcement' },
+    { id: 'EVIDENCE_SAVED', label: '5. Evidence saved', sub: 'Local Audit Log' },
   ];
 
   const currentStageIndex = stages.findIndex(s => s.id === campaign.stage);
 
+  // Compute live summary statistics from actual campaign results
+  const completedCount = campaign.results.filter(r => r.evidence_level !== 'NOT_EXECUTED').length;
+  const passedCount = campaign.results.filter(r => r.status_hardened === 'PASS').length;
+  const failedCount = campaign.results.filter(r => r.status_hardened === 'FAIL').length;
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* 0. Primary Execution Mode Switcher */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* 0. Primary Top Bar: Execution Mode + Scan Button + Inline Status */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
@@ -232,240 +237,138 @@ export default function RedTeamSection({
         background: 'var(--bg-card)',
         border: '1px solid var(--border-subtle)',
         borderRadius: '12px',
-        padding: '12px 18px',
+        padding: '10px 16px',
         flexWrap: 'wrap',
-        gap: '12px'
+        gap: '12px',
+        boxShadow: 'var(--shadow-sm)'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '0.5px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '0.4px' }}>
             EXECUTION MODE:
           </span>
-          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-            {execMode === 'simulation'
-              ? '⚡ DEMO / SOFTWARE MODE — Deterministic software execution (Physical hardware not required)'
-              : '🔌 HARDWARE MODE — Dual microcontrollers (ESP8266 + ESP32) connected via USB'}
-          </span>
+          <div style={{
+            display: 'inline-flex',
+            background: 'var(--bg-inset)',
+            padding: '3px',
+            borderRadius: '8px',
+            border: '1px solid var(--border-subtle)',
+            opacity: campaign.is_running ? 0.6 : 1
+          }}>
+            <button
+              onClick={() => setExecModeAndPersist('simulation')}
+              disabled={campaign.is_running}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '6px 14px',
+                borderRadius: '6px',
+                fontSize: '11px',
+                fontWeight: 700,
+                border: 'none',
+                cursor: campaign.is_running ? 'not-allowed' : 'pointer',
+                background: execMode === 'simulation' ? '#0284c7' : 'transparent',
+                color: execMode === 'simulation' ? '#ffffff' : 'var(--text-secondary)',
+                boxShadow: execMode === 'simulation' ? '0 1px 2px rgba(0,0,0,0.15)' : 'none',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <Zap size={13} /> DEMO / SOFTWARE MODE
+            </button>
+            <button
+              onClick={() => setExecModeAndPersist('hardware')}
+              disabled={campaign.is_running}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '6px 14px',
+                borderRadius: '6px',
+                fontSize: '11px',
+                fontWeight: 700,
+                border: 'none',
+                cursor: campaign.is_running ? 'not-allowed' : 'pointer',
+                background: execMode === 'hardware' ? (readiness.ready ? '#059669' : '#0284c7') : 'transparent',
+                color: execMode === 'hardware' ? '#ffffff' : 'var(--text-secondary)',
+                boxShadow: execMode === 'hardware' ? '0 1px 2px rgba(0,0,0,0.15)' : 'none',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <Cpu size={13} /> HARDWARE MODE (DUAL USB)
+            </button>
+          </div>
         </div>
 
-        <div style={{
-          display: 'inline-flex',
-          background: 'var(--bg-inset)',
-          padding: '4px',
-          borderRadius: '10px',
-          border: '1px solid var(--border-subtle)',
-          opacity: campaign.is_running ? 0.6 : 1
-        }}
-        title={campaign.is_running ? "Execution mode is locked during active campaign execution" : undefined}
-        >
-          <button
-            onClick={() => setExecModeAndPersist('simulation')}
-            disabled={campaign.is_running}
-            style={{
-              display: 'flex',
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {scanNotification && (
+            <span style={{
+              display: 'inline-flex',
               alignItems: 'center',
-              gap: '6px',
-              padding: '7px 16px',
-              borderRadius: '7px',
-              fontSize: '12px',
+              gap: '4px',
+              padding: '4px 8px',
+              borderRadius: '6px',
+              fontSize: '11px',
               fontWeight: 700,
-              border: 'none',
-              cursor: campaign.is_running ? 'not-allowed' : 'pointer',
-              background: execMode === 'simulation' ? '#0284c7' : 'transparent',
-              color: execMode === 'simulation' ? '#ffffff' : 'var(--text-secondary)',
-              boxShadow: execMode === 'simulation' ? '0 1px 3px rgba(0,0,0,0.2)' : 'none',
-              transition: 'all 0.15s ease'
-            }}
-          >
-            <Zap size={14} /> DEMO / SOFTWARE MODE
-          </button>
-          <button
-            onClick={() => setExecModeAndPersist('hardware')}
-            disabled={campaign.is_running}
-            style={{
-              display: 'flex',
+              background: 'rgba(5, 150, 105, 0.1)',
+              color: '#059669',
+              border: '1px solid rgba(5, 150, 105, 0.25)'
+            }}>
+              <CheckCircle2 size={12} /> {scanNotification.text}
+            </span>
+          )}
+
+          {readiness.ready && (
+            <span style={{
+              display: 'inline-flex',
               alignItems: 'center',
-              gap: '6px',
-              padding: '7px 16px',
-              borderRadius: '7px',
-              fontSize: '12px',
+              gap: '4px',
+              padding: '4px 8px',
+              borderRadius: '6px',
+              fontSize: '11px',
               fontWeight: 700,
-              border: 'none',
-              cursor: campaign.is_running ? 'not-allowed' : 'pointer',
-              background: execMode === 'hardware' ? (readiness.ready ? '#16a34a' : '#e11d48') : 'transparent',
-              color: execMode === 'hardware' ? '#ffffff' : 'var(--text-secondary)',
-              boxShadow: execMode === 'hardware' ? '0 1px 3px rgba(0,0,0,0.2)' : 'none',
-              transition: 'all 0.15s ease'
-            }}
+              background: 'rgba(5, 150, 105, 0.1)',
+              color: '#059669',
+              border: '1px solid rgba(5, 150, 105, 0.25)'
+            }}>
+              <CheckCircle2 size={12} /> HARDWARE DETECTED — VERIFIED
+            </span>
+          )}
+
+          <button
+            className="btn-ghost"
+            onClick={handleScanIdentify}
+            disabled={isScanning}
+            style={{ fontSize: '11px', padding: '6px 12px' }}
+            title="Scan USB ports and check firmware handshake"
           >
-            <Cpu size={14} /> HARDWARE MODE (DUAL USB)
+            <Activity size={13} />
+            {isScanning ? 'Scanning...' : 'Scan & Identify Hardware'}
           </button>
         </div>
       </div>
 
-      {/* 1. Hardware Readiness or Demo Mode Banner */}
-      {execMode === 'simulation' ? (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '12px 18px',
-          background: 'rgba(2, 132, 199, 0.08)',
-          border: '1px solid rgba(2, 132, 199, 0.3)',
-          borderRadius: '10px',
-          color: '#0284c7',
-          flexWrap: 'wrap',
-          gap: '10px'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Zap size={20} />
-            <div>
-              <span style={{ fontWeight: 800, fontSize: '13px' }}>DEMO / SOFTWARE MODE ACTIVE</span>
-              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                Deterministic software testbed enabled. Executes 10 scenarios across Layer 1 (OTA Security) and Layer 4 (Cryptographic Sanitization). Physical microcontrollers are not required.
-              </div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{
-              fontSize: '11px',
-              fontWeight: 700,
-              background: 'rgba(2, 132, 199, 0.15)',
-              color: '#0284c7',
-              padding: '4px 10px',
-              borderRadius: '6px',
-              fontFamily: 'var(--font-mono)'
-            }}>
-              EVIDENCE: SIMULATED & SOFTWARE_VERIFIED
-            </span>
-          </div>
-        </div>
-      ) : readiness.ready ? (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '12px 18px',
-          background: 'rgba(22, 163, 74, 0.08)',
-          border: '1px solid rgba(22, 163, 74, 0.3)',
-          borderRadius: '10px',
-          color: '#16a34a',
-          flexWrap: 'wrap',
-          gap: '10px'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <CheckCircle2 size={20} />
-            <div>
-              <span style={{ fontWeight: 800, fontSize: '13px' }}>HARDWARE DETECTED — VERIFIED</span>
-              <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginLeft: '10px' }}>
-                Physical microcontrollers verified via genuine protocol handshake.
-              </span>
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <button
-              className="btn-ghost"
-              onClick={handleScanIdentify}
-              disabled={isScanning}
-              style={{ fontSize: '11px', padding: '4px 10px' }}
-            >
-              {isScanning ? 'Scanning...' : 'Re-verify'}
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '12px 18px',
-          background: 'rgba(2, 132, 199, 0.08)',
-          border: '1px solid rgba(2, 132, 199, 0.3)',
-          borderRadius: '10px',
-          color: '#0284c7',
-          flexWrap: 'wrap',
-          gap: '12px'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Cpu size={20} />
-            <div>
-              <span style={{ fontWeight: 800, fontSize: '13px' }}>DEMO HARDWARE READY</span>
-              <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginLeft: '10px' }}>
-                Software demo adapter active — hardware-independent execution ready.
-              </span>
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <button
-              className="btn-primary"
-              onClick={handleScanIdentify}
-              disabled={isScanning}
-              style={{ fontSize: '12px', padding: '6px 14px', background: '#0284c7' }}
-            >
-              {isScanning ? 'Scanning Ports...' : 'Scan & Identify Hardware'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Immediate Scan Notification Banner */}
-      {scanNotification && (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-          padding: '10px 16px',
-          background: 'rgba(22, 163, 74, 0.1)',
-          border: '1px solid rgba(22, 163, 74, 0.3)',
-          borderRadius: '8px',
-          color: '#16a34a',
-          fontWeight: 700,
-          fontSize: '12px'
-        }}>
-          <CheckCircle2 size={16} />
-          <span>{scanNotification.text}</span>
-        </div>
-      )}
-
-      {/* Dynamic Automatic Fallback Notice Banner */}
-      {(autoFallbackMsg || campaign.notice) && (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-          padding: '12px 18px',
-          background: 'rgba(2, 132, 199, 0.12)',
-          border: '1px solid rgba(2, 132, 199, 0.4)',
-          borderRadius: '10px',
-          color: '#0284c7',
-          fontWeight: 700,
-          fontSize: '13px'
-        }}>
-          <Zap size={18} />
-          <span>{autoFallbackMsg || campaign.notice}</span>
-        </div>
-      )}
-
-      {/* 2. Header & Campaign Controller Controls */}
+      {/* 1. Primary Action Area: Red Team Campaign Controller */}
       <div style={{
         background: 'var(--bg-card)',
         border: '1px solid var(--border-subtle)',
-        borderRadius: '14px',
-        padding: '20px',
+        borderRadius: '12px',
+        padding: '18px 20px',
         boxShadow: 'var(--shadow-sm)',
         display: 'flex',
         flexDirection: 'column',
-        gap: '16px'
+        gap: '14px'
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
+        {/* Header & Main Action Controls */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Radio size={20} color="#e11d48" />
-              <h2 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                Red Team Test Campaign Controller
+              <Radio size={18} color="#e11d48" />
+              <h2 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+                Red Team Campaign Controller
               </h2>
             </div>
-            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-              Controlled, deterministic test suite executing 20 focused scenarios across Layer 1 (OTA Security) and Layer 4 (Cryptographic Sanitization).
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px', margin: 0 }}>
+              Controlled comparative test suite executing 20 scenarios across Layer 1 (Firmware Security) and Layer 4 (Data & Key Sanitization).
             </p>
           </div>
 
@@ -475,9 +378,9 @@ export default function RedTeamSection({
               <button 
                 className="btn-danger" 
                 onClick={handleStopCampaign}
-                style={{ fontSize: '13px', padding: '9px 18px' }}
+                style={{ fontSize: '12px', padding: '8px 16px', fontWeight: 700 }}
               >
-                <Square size={14} fill="#ffffff" /> STOP CAMPAIGN
+                <Square size={13} fill="#ffffff" /> STOP CAMPAIGN
               </button>
             ) : (
               <button 
@@ -486,14 +389,14 @@ export default function RedTeamSection({
                 disabled={isExecuting || campaign.is_running}
                 title="Start Red Team Campaign"
                 style={{
-                  fontSize: '13px',
-                  padding: '9px 18px',
+                  fontSize: '12px',
+                  padding: '8px 16px',
                   fontWeight: 700,
                   opacity: (isExecuting || campaign.is_running) ? 0.5 : 1,
                   cursor: (isExecuting || campaign.is_running) ? 'not-allowed' : 'pointer'
                 }}
               >
-                <Play size={14} fill="#ffffff" /> START RED TEAM CAMPAIGN
+                <Play size={13} fill="#ffffff" /> START RED TEAM CAMPAIGN
               </button>
             )}
 
@@ -501,19 +404,19 @@ export default function RedTeamSection({
               className="btn-ghost" 
               onClick={handleResetCampaign}
               disabled={campaign.is_running}
-              style={{ fontSize: '12px' }}
+              style={{ fontSize: '12px', padding: '8px 14px' }}
             >
-              <RotateCcw size={14} /> RESET TEST STATE
+              <RotateCcw size={13} /> RESET
             </button>
 
-            {/* Export Dropdown (Section 7: CSV, PDF, JSON) */}
+            {/* Export Dropdown */}
             <div style={{ position: 'relative' }}>
               <button 
                 className="btn-ghost" 
                 onClick={() => setShowExportMenu(!showExportMenu)}
-                style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                style={{ fontSize: '12px', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '4px' }}
               >
-                <Download size={14} /> EXPORT EVIDENCE <ChevronDown size={12} />
+                <Download size={13} /> EXPORT RESULTS <ChevronDown size={11} />
               </button>
 
               {showExportMenu && (
@@ -521,13 +424,13 @@ export default function RedTeamSection({
                   position: 'absolute',
                   right: 0,
                   top: '100%',
-                  marginTop: '6px',
+                  marginTop: '4px',
                   background: 'var(--bg-card)',
                   border: '1px solid var(--border-subtle)',
                   borderRadius: '8px',
                   boxShadow: 'var(--shadow-md)',
                   zIndex: 50,
-                  minWidth: '160px',
+                  minWidth: '170px',
                   overflow: 'hidden'
                 }}>
                   <button
@@ -535,7 +438,7 @@ export default function RedTeamSection({
                     style={{
                       width: '100%',
                       textAlign: 'left',
-                      padding: '8px 14px',
+                      padding: '8px 12px',
                       fontSize: '12px',
                       background: 'none',
                       border: 'none',
@@ -548,14 +451,14 @@ export default function RedTeamSection({
                     onMouseEnter={(e) => e.target.style.background = 'var(--bg-hover)'}
                     onMouseLeave={(e) => e.target.style.background = 'none'}
                   >
-                    <FileText size={14} color="#e11d48" /> Export PDF Report
+                    <FileText size={13} color="#e11d48" /> Export PDF Report
                   </button>
                   <button
                     onClick={() => handleExport('csv')}
                     style={{
                       width: '100%',
                       textAlign: 'left',
-                      padding: '8px 14px',
+                      padding: '8px 12px',
                       fontSize: '12px',
                       background: 'none',
                       border: 'none',
@@ -568,14 +471,14 @@ export default function RedTeamSection({
                     onMouseEnter={(e) => e.target.style.background = 'var(--bg-hover)'}
                     onMouseLeave={(e) => e.target.style.background = 'none'}
                   >
-                    <Download size={14} color="#2563eb" /> Export CSV Ledger
+                    <Download size={13} color="#2563eb" /> Export CSV Ledger
                   </button>
                   <button
                     onClick={() => handleExport('json')}
                     style={{
                       width: '100%',
                       textAlign: 'left',
-                      padding: '8px 14px',
+                      padding: '8px 12px',
                       fontSize: '12px',
                       background: 'none',
                       border: 'none',
@@ -588,35 +491,15 @@ export default function RedTeamSection({
                     onMouseEnter={(e) => e.target.style.background = 'var(--bg-hover)'}
                     onMouseLeave={(e) => e.target.style.background = 'none'}
                   >
-                    <FileCheck size={14} color="#16a34a" /> Export JSON Bundle
+                    <FileCheck size={13} color="#16a34a" /> Export JSON Bundle
                   </button>
                   <div style={{ borderTop: '1px solid var(--border-subtle)', margin: '4px 0' }} />
-                  <button
-                    onClick={() => handleWaveformExport('json')}
-                    style={{
-                      width: '100%',
-                      textAlign: 'left',
-                      padding: '8px 14px',
-                      fontSize: '12px',
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--text-primary)',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px'
-                    }}
-                    onMouseEnter={(e) => e.target.style.background = 'var(--bg-hover)'}
-                    onMouseLeave={(e) => e.target.style.background = 'none'}
-                  >
-                    <Activity size={14} color="#7c3aed" /> Export Waveforms JSON
-                  </button>
                   <button
                     onClick={() => handleWaveformExport('csv')}
                     style={{
                       width: '100%',
                       textAlign: 'left',
-                      padding: '8px 14px',
+                      padding: '8px 12px',
                       fontSize: '12px',
                       background: 'none',
                       border: 'none',
@@ -629,7 +512,7 @@ export default function RedTeamSection({
                     onMouseEnter={(e) => e.target.style.background = 'var(--bg-hover)'}
                     onMouseLeave={(e) => e.target.style.background = 'none'}
                   >
-                    <Activity size={14} color="#0891b2" /> Export Waveforms CSV
+                    <Activity size={13} color="#0891b2" /> Export Waveforms CSV
                   </button>
                 </div>
               )}
@@ -637,32 +520,36 @@ export default function RedTeamSection({
           </div>
         </div>
 
-        {/* Real-Time Progress Bar */}
-        <div className="campaign-progress-card">
+        {/* Campaign Progress Bar */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px' }}>
             <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-              Campaign Progress: {campaign.is_running ? `Test ${campaign.current_index} of ${campaign.total_steps}` : campaign.status === 'COMPLETED' ? 'Campaign Completed (20/20)' : 'Idle (Ready to Start)'}
+              Campaign Progress: {campaign.is_running ? `Step ${campaign.current_index} of ${campaign.total_steps}` : campaign.status === 'COMPLETED' ? 'Completed (20/20)' : 'Idle (Ready to Start)'}
             </span>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-muted)' }}>
-              {campaign.current_scenario ? `Active Scenario: ${campaign.current_scenario}` : 'Status: ' + campaign.status}
+              {campaign.current_scenario ? `Active: ${campaign.current_scenario}` : 'Status: ' + campaign.status}
             </span>
           </div>
 
-          <div className="progress-track">
+          <div style={{ height: '6px', background: 'var(--bg-inset)', borderRadius: '3px', overflow: 'hidden' }}>
             <div 
-              className="progress-fill" 
-              style={{ width: `${(campaign.current_index / campaign.total_steps) * 100}%` }}
+              style={{
+                height: '100%',
+                background: '#0284c7',
+                width: `${(campaign.current_index / (campaign.total_steps || 20)) * 100}%`,
+                transition: 'width 0.3s ease'
+              }}
             />
           </div>
 
-          {/* Flow Stages Tracker */}
+          {/* 5 Compact Stages Tracker */}
           <div style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             gap: '8px',
             overflowX: 'auto',
-            paddingTop: '6px'
+            paddingTop: '4px'
           }}>
             {stages.map((stg, sIdx) => {
               const isActive = campaign.is_running && campaign.stage === stg.id;
@@ -673,7 +560,7 @@ export default function RedTeamSection({
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
+                    gap: '5px',
                     fontSize: '11px',
                     color: isActive ? '#e11d48' : isPast ? '#059669' : 'var(--text-muted)',
                     fontWeight: isActive || isPast ? 700 : 500,
@@ -681,16 +568,36 @@ export default function RedTeamSection({
                   }}
                 >
                   <div style={{
-                    width: '8px',
-                    height: '8px',
+                    width: '7px',
+                    height: '7px',
                     borderRadius: '50%',
                     background: isActive ? '#e11d48' : isPast ? '#059669' : 'var(--border-subtle)',
-                    boxShadow: isActive ? '0 0 8px #e11d48' : 'none'
+                    boxShadow: isActive ? '0 0 6px #e11d48' : 'none'
                   }} />
                   <span>{stg.label}</span>
                 </div>
               );
             })}
+          </div>
+        </div>
+
+        {/* Compact Summary Row (Real Results) */}
+        <div className="unified-summary-bar" style={{ marginTop: '4px', marginBottom: 0 }}>
+          <div className="unified-summary-pill">
+            <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 600 }}>TOTAL SCENARIOS</span>
+            <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>20</span>
+          </div>
+          <div className="unified-summary-pill">
+            <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 600 }}>COMPLETED TESTS</span>
+            <span style={{ fontSize: '16px', fontWeight: 800, color: '#0284c7' }}>{completedCount}</span>
+          </div>
+          <div className="unified-summary-pill">
+            <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 600 }}>VERIFIED DEFENCES</span>
+            <span style={{ fontSize: '16px', fontWeight: 800, color: '#059669' }}>{passedCount}</span>
+          </div>
+          <div className="unified-summary-pill">
+            <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 600 }}>FAILURES</span>
+            <span style={{ fontSize: '16px', fontWeight: 800, color: failedCount > 0 ? '#dc2626' : 'var(--text-muted)' }}>{failedCount}</span>
           </div>
         </div>
       </div>
@@ -751,54 +658,56 @@ export default function RedTeamSection({
       </div>
 
       {/* 5. 10 Focused Scenario Cards Grid */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
-        gap: '16px'
-      }}>
+      <div className="unified-scenario-grid">
         {displayedCatalog.map((sc) => {
+          const matchResult = campaign.results.find(r => r.test_id === sc.id);
+          const verdictStatus = matchResult ? matchResult.status_hardened : null;
           return (
-            <div key={sc.id} className="scenario-card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                <div>
-                  <span style={{ 
-                    fontSize: '10px', 
-                    fontFamily: 'var(--font-mono)', 
-                    fontWeight: 700, 
-                    color: '#e11d48',
-                    background: 'rgba(225, 29, 72, 0.08)',
-                    padding: '2px 6px',
-                    borderRadius: '4px',
-                    border: '1px solid rgba(225, 29, 72, 0.2)'
-                  }}>
-                    {sc.id}
-                  </span>
-                  <h4 style={{ fontSize: '14px', fontWeight: 700, marginTop: '6px', color: 'var(--text-primary)' }}>
-                    {sc.name}
-                  </h4>
+            <div key={sc.id} className="unified-card">
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                  <span className="unified-card-id">{sc.id}</span>
+                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                    <span className={`csf-tag ${sc.csf_function?.toLowerCase()}`}>
+                      {sc.csf_category}
+                    </span>
+                    {verdictStatus ? (
+                      <span className={`result-tag ${verdictStatus === 'PASS' ? 'pass' : 'fail'}`} style={{ fontSize: '10px', padding: '2px 6px' }}>
+                        {verdictStatus}
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: 'var(--bg-inset)', color: 'var(--text-muted)' }}>
+                        Not run
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <span className={`csf-tag ${sc.csf_function?.toLowerCase()}`}>
-                  {sc.csf_category}
-                </span>
-              </div>
 
-              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px', minHeight: '34px' }}>
-                {sc.description}
-              </p>
+                <h4 style={{ fontSize: '13px', fontWeight: 700, margin: '4px 0', color: 'var(--text-primary)' }}>
+                  {sc.name}
+                </h4>
 
-              <div style={{
-                background: 'var(--bg-inset)',
-                borderRadius: '6px',
-                padding: '8px 10px',
-                fontSize: '11px',
-                marginBottom: '12px',
-                fontFamily: 'var(--font-mono)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '3px'
-              }}>
-                <div><span style={{ color: '#e11d48' }}>Expected Baseline:</span> {sc.expected_baseline}</div>
-                <div><span style={{ color: '#059669' }}>Expected Hardened:</span> {sc.expected_hardened}</div>
+                <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: '4px 0 10px', lineHeight: 1.4, minHeight: '32px' }}>
+                  {sc.description}
+                </p>
+
+                <div style={{
+                  background: 'var(--bg-inset)',
+                  borderRadius: '6px',
+                  padding: '6px 8px',
+                  fontSize: '11px',
+                  fontFamily: 'var(--font-mono)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '2px'
+                }}>
+                  <div style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }} title={sc.expected_baseline}>
+                    <span style={{ color: '#e11d48' }}>Baseline:</span> {sc.expected_baseline}
+                  </div>
+                  <div style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }} title={sc.expected_hardened}>
+                    <span style={{ color: '#059669' }}>Hardened:</span> {sc.expected_hardened}
+                  </div>
+                </div>
               </div>
 
               <button
@@ -806,8 +715,10 @@ export default function RedTeamSection({
                 style={{
                   width: '100%',
                   justifyContent: 'center',
-                  fontSize: '12px',
+                  fontSize: '11px',
                   fontWeight: 600,
+                  padding: '6px 10px',
+                  marginTop: '8px',
                   opacity: (isExecuting || campaign.is_running) ? 0.5 : 1,
                   cursor: (isExecuting || campaign.is_running) ? 'not-allowed' : 'pointer'
                 }}
@@ -818,8 +729,6 @@ export default function RedTeamSection({
                     if (readiness.ready) {
                       onExecuteTest(sc.id, 'real');
                     } else {
-                      // Hardware Mode selected, physical hardware not verified:
-                      // Keep Hardware Mode selected in UI; run via demo adapter
                       setAutoFallbackMsg('DEMO EXECUTION — NO PHYSICAL HARDWARE VERIFIED');
                       setTimeout(() => setAutoFallbackMsg(null), 6000);
                       onExecuteTest(sc.id, 'simulation');
@@ -829,7 +738,7 @@ export default function RedTeamSection({
                   }
                 }}
               >
-                <Zap size={14} color="#e11d48" /> RUN SINGLE TEST ({sc.id})
+                <Zap size={13} color="#e11d48" /> RUN ({sc.id})
               </button>
             </div>
           );
