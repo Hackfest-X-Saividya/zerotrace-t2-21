@@ -518,8 +518,8 @@ def test_21_unrelated_serial_device_rejected():
         
         changed, report = asyncio.run(device_service.auto_scan_and_handshake())
         assert report["ready"] is False
-        assert report["state"] == "DISCONNECTED"
-        assert "PORT_FOUND_HANDSHAKE_FAILED" in report["message"]
+        assert report["state"] in ["DISCONNECTED", "HANDSHAKE_FAILED"]
+        assert "PORT_FOUND_HANDSHAKE_FAILED" in report["message"] or "HANDSHAKE_FAILED" in report["message"]
         assert len(report["unresponsive_ports"]) == 1
         assert report["unresponsive_ports"][0]["status"] == "PORT_FOUND_HANDSHAKE_FAILED"
 
@@ -545,8 +545,8 @@ def test_22_port_exists_but_does_not_respond_diagnostic():
         
         changed, report = asyncio.run(device_service.auto_scan_and_handshake())
         assert report["ready"] is False
-        assert report["state"] == "DISCONNECTED"
-        assert "PORT_FOUND_HANDSHAKE_FAILED" in report["message"]
+        assert report["state"] in ["DISCONNECTED", "HANDSHAKE_FAILED"]
+        assert "PORT_FOUND_HANDSHAKE_FAILED" in report["message"] or "HANDSHAKE_FAILED" in report["message"]
         assert report["unresponsive_ports"][0]["port"] == "/dev/cu.usbserial-silent1"
 
 

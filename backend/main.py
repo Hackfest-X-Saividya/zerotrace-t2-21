@@ -156,7 +156,7 @@ class ExecuteTestRequest(BaseModel):
     credential_token: Optional[str] = None
 
 class CampaignStartRequest(BaseModel):
-    mode: str = "auto"  # "auto", "hardware", "simulation", or "demo"
+    mode: str = "simulation"  # "hardware", "software", "simulation", "demo", or "auto"
 
 test_history: deque = deque(maxlen=200)
 raw_logs: deque = deque(maxlen=500)
@@ -906,16 +906,21 @@ async def execute_test(req: ExecuteTestRequest):
             "status_hardened": h_res["status"],
             "details_hardened": h_res.get("details", "")
         }
-        # Attach waveform events for all software/simulation results
-        wf_t1 = round(latency_b or 10, 2)
-        wf_t2 = round(latency_h or 20, 2)
-        exec_mode = "hardware" if is_real else "software"
-        result_entry["waveform_events"] = [
-            {"event_id": f"WF-{req_id[:8]}-1", "scenario_id": scenario["id"], "timestamp_ms": 0, "elapsed_ms": 0, "signal_type": "red_team", "value": 80, "event_name": "ATTACK_DISPATCHED", "source": "red_team", "execution_mode": exec_mode, "evidence_classification": ev_level},
-            {"event_id": f"WF-{req_id[:8]}-2", "scenario_id": scenario["id"], "timestamp_ms": wf_t1, "elapsed_ms": wf_t1, "signal_type": "blue_team", "value": 20 if h_res.get("status") == "PASS" else 90, "event_name": "BLUE_VALIDATION_START", "source": "blue_team", "execution_mode": exec_mode, "evidence_classification": ev_level},
-            {"event_id": f"WF-{req_id[:8]}-3", "scenario_id": scenario["id"], "timestamp_ms": wf_t2, "elapsed_ms": wf_t2, "signal_type": "blue_team", "value": 10 if h_res.get("status") == "PASS" else 85, "event_name": "DEFENSE_VERDICT", "source": "blue_team", "execution_mode": exec_mode, "evidence_classification": ev_level},
-            {"event_id": f"WF-{req_id[:8]}-4", "scenario_id": scenario["id"], "timestamp_ms": wf_t2 + 5, "elapsed_ms": wf_t2 + 5, "signal_type": "evidence", "value": 100, "event_name": "EVIDENCE_SAVED", "source": "system", "execution_mode": exec_mode, "evidence_classification": ev_level},
-        ]
+
+    # Attach waveform events for all executed results (Hardware, Software, Simulation)
+    wf_t1 = round(latency_b or 10, 2)
+    wf_t2 = round(latency_h or 20, 2)
+    exec_mode = "hardware" if is_real else "software"
+    cid = result_entry.get("campaign_id", campaign_state.get("campaign_id", "camp-manual"))
+    lyr = scenario.get("layer", "Layer 1")
+    unit = "ms" if is_real else "normalized"
+
+    result_entry["waveform_events"] = [
+        {"event_id": f"WF-{req_id[:8]}-1", "campaign_id": cid, "scenario_id": scenario["id"], "layer": lyr, "timestamp_ms": 0, "elapsed_ms": 0, "signal_type": "red_team", "value": 80, "unit": unit, "event_name": "ATTACK_DISPATCHED", "source": "red_team", "execution_mode": exec_mode, "evidence_classification": ev_level},
+        {"event_id": f"WF-{req_id[:8]}-2", "campaign_id": cid, "scenario_id": scenario["id"], "layer": lyr, "timestamp_ms": wf_t1, "elapsed_ms": wf_t1, "signal_type": "blue_team", "value": 20 if result_entry.get("status_hardened") == "PASS" else 90, "unit": unit, "event_name": "BLUE_VALIDATION_START", "source": "blue_team", "execution_mode": exec_mode, "evidence_classification": ev_level},
+        {"event_id": f"WF-{req_id[:8]}-3", "campaign_id": cid, "scenario_id": scenario["id"], "layer": lyr, "timestamp_ms": wf_t2, "elapsed_ms": wf_t2, "signal_type": "blue_team", "value": 10 if result_entry.get("status_hardened") == "PASS" else 85, "unit": unit, "event_name": "DEFENSE_VERDICT", "source": "blue_team", "execution_mode": exec_mode, "evidence_classification": ev_level},
+        {"event_id": f"WF-{req_id[:8]}-4", "campaign_id": cid, "scenario_id": scenario["id"], "layer": lyr, "timestamp_ms": wf_t2 + 5, "elapsed_ms": wf_t2 + 5, "signal_type": "evidence", "value": 100, "unit": unit, "event_name": "EVIDENCE_SAVED", "source": "system", "execution_mode": exec_mode, "evidence_classification": ev_level},
+    ]
 
     test_history.append(result_entry)
     metrics_counter["total_tests"] += 1
@@ -1133,9 +1138,12 @@ async def start_campaign(req: Optional[CampaignStartRequest] = None):
     if campaign_state["is_running"]:
         return {"status": "already_running", "campaign": campaign_state}
 
-    camp_mode = req.mode if req else "auto"
-    if camp_mode not in ["hardware", "simulation", "demo", "auto"]:
-        camp_mode = "auto"
+    camp_mode = (req.mode.lower() if req and req.mode else "auto")
+    if camp_mode in ["software", "simulation"]:
+        camp_mode = "demo"
+
+    if camp_mode not in ["hardware", "demo", "auto"]:
+        camp_mode = "demo"
 
     notice = None
     if camp_mode == "auto":
@@ -1145,14 +1153,15 @@ async def start_campaign(req: Optional[CampaignStartRequest] = None):
         else:
             camp_mode = "demo"
             notice = "Hardware unavailable — running in Demo / Software Mode"
-    elif camp_mode in ["simulation", "demo"]:
+    elif camp_mode == "demo":
         is_ready, _ = device_service.is_hardware_ready()
         if not is_ready:
-            notice = "Hardware unavailable — running in Demo / Software Mode"
+            notice = "Running in Demo / Software Mode"
 
     if camp_mode == "hardware":
         is_ready, err = device_service.is_hardware_ready()
         if not is_ready:
+            # Strictly reject: NEVER auto-switch when the user explicitly selected Hardware Mode
             raise HTTPException(status_code=409, detail=err)
 
     campaign_state["is_running"] = True
@@ -1262,18 +1271,28 @@ async def export_waveforms(format: str = Query("json", pattern="^(json|csv)$")):
     import csv as csv_module
     results = campaign_state.get("results") or list(test_history)
     all_events = []
+    standard_headers = [
+        "campaign_id", "scenario_id", "layer", "execution_mode", "event_id",
+        "timestamp_ms", "elapsed_ms", "signal_type", "value", "unit",
+        "event_name", "source", "evidence_classification", "scenario_name", "verdict"
+    ]
     for r in results:
         events = r.get("waveform_events", [])
         for ev in events:
             ev_copy = dict(ev)
             ev_copy["scenario_name"] = r.get("name", ev.get("scenario_id", ""))
             ev_copy["verdict"] = r.get("status_hardened", "UNKNOWN")
+            # Ensure all standard fields exist
+            for h in standard_headers:
+                if h not in ev_copy:
+                    ev_copy[h] = ""
             all_events.append(ev_copy)
     if format == "csv":
         output = io.StringIO()
+        fieldnames = list(all_events[0].keys()) if all_events else standard_headers
+        writer = csv_module.DictWriter(output, fieldnames=fieldnames, quoting=csv_module.QUOTE_MINIMAL)
+        writer.writeheader()
         if all_events:
-            writer = csv_module.DictWriter(output, fieldnames=list(all_events[0].keys()), quoting=csv_module.QUOTE_MINIMAL)
-            writer.writeheader()
             writer.writerows(all_events)
         return PlainTextResponse(
             content=output.getvalue(),

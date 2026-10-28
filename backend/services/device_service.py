@@ -24,10 +24,15 @@ logger = logging.getLogger("ZeroTraceDeviceService")
 
 READINESS_STATES = [
     "DISCONNECTED",
+    "PORT_FOUND",
     "SCANNING",
     "IDENTIFYING",
     "HANDSHAKING",
+    "HANDSHAKE_FAILED",
+    "CONNECTED_UNVERIFIED",
     "READY",
+    "BUSY",
+    "ERROR",
     "DEVICE_ERROR",
     "CAMPAIGN_RUNNING",
     "CAMPAIGN_STOPPED"
@@ -42,6 +47,8 @@ class DeviceService:
         self._discovery_lock = asyncio.Lock()
         self.last_known_ports: List[str] = []
         self.unresponsive_ports: List[dict] = []
+        self.failed_port_cache: Dict[str, dict] = {}
+        self.failed_port_cooldown: float = 25.0
 
         self.device_states: Dict[str, dict] = {
             "baseline": {
@@ -288,134 +295,153 @@ class DeviceService:
     def _sync_probe_port(self, port_name: str) -> dict:
         """
         Safely probes a single port synchronously on a worker thread.
+        Tries 115200 baud first, then 9600 baud as fallback.
+        Drains and clears input buffer before sending handshake to avoid boot noise.
         Never calls probe.flush() (avoids macOS tcdrain indefinite hangs).
         """
-        kwargs = {
-            "port": port_name,
-            "baudrate": 115200,
-            "timeout": 0.4,
-            "write_timeout": 0.4,
-            "rtscts": False,
-            "dsrdtr": False
-        }
-        try:
-            try:
-                probe = serial.Serial(**kwargs, exclusive=True)
-            except (TypeError, ValueError):
-                probe = serial.Serial(**kwargs)
-        except Exception as e:
-            return {
-                "success": False,
-                "target": None,
-                "info": None,
-                "status": "PORT_OPEN_FAILED",
-                "detail": f"Could not open port {port_name}: {e}"
+        saw_bytes = False
+        last_error = ""
+
+        for baud in [115200, 9600]:
+            kwargs = {
+                "port": port_name,
+                "baudrate": baud,
+                "timeout": 0.4,
+                "write_timeout": 0.4,
+                "rtscts": False,
+                "dsrdtr": False
             }
-
-        try:
             try:
-                probe.dtr = False
-                probe.rts = False
-            except Exception:
-                pass
-
-            try:
-                probe.reset_input_buffer()
-            except Exception:
-                pass
-
-            req_id = f"probe-{uuid.uuid4().hex[:8]}"
-            handshake_payload = json.dumps({"cmd": "handshake", "req_id": req_id}) + "\n"
-            try:
-                probe.write(b"\n")
-                probe.write(handshake_payload.encode("utf-8"))
+                try:
+                    probe = serial.Serial(**kwargs, exclusive=True)
+                except (TypeError, ValueError):
+                    probe = serial.Serial(**kwargs)
             except Exception as e:
+                err_str = str(e)
+                last_error = err_str
+                # If permission denied, busy, or resource locked, immediately return BUSY
+                is_busy = "busy" in err_str.lower() or "operation not permitted" in err_str.lower() or "resource" in err_str.lower()
                 return {
                     "success": False,
                     "target": None,
                     "info": None,
-                    "status": "PORT_FOUND_HANDSHAKE_FAILED",
-                    "detail": f"Write failed on {port_name}: {e}"
+                    "status": "BUSY" if is_busy else "PORT_OPEN_FAILED",
+                    "detail": f"Could not open port {port_name}: {err_str}"
                 }
 
-            t_deadline = time.time() + 0.8
-            while time.time() < t_deadline:
-                try:
-                    line_bytes = probe.readline()
-                except Exception:
-                    break
-
-                if not line_bytes:
-                    time.sleep(0.04)
-                    continue
-
-                line = line_bytes.decode("utf-8", errors="replace").strip()
-                if not line:
-                    continue
-
-                if line.startswith("{") and line.endswith("}"):
-                    try:
-                        info_obj = json.loads(line)
-                        arch = str(info_obj.get("arch", "")).lower()
-                        target_hint = str(info_obj.get("target", "")).lower()
-                        board_type = str(info_obj.get("board_type", "")).lower()
-                        proto_ver = str(info_obj.get("proto_ver", "1.0"))
-                        caps = info_obj.get("capabilities", [])
-                        dev_id = str(info_obj.get("device_id", ""))
-
-                        if "esp8266" in arch or "esp8266" in board_type or "baseline" in target_hint:
-                            return {
-                                "success": True,
-                                "target": "baseline",
-                                "info": {
-                                    "port": port_name,
-                                    "chip": f"ESP8266 ({info_obj.get('chip_id', 'ESP-12')})",
-                                    "chip_info": info_obj,
-                                    "proto_ver": proto_ver,
-                                    "device_id": dev_id or "esp8266-baseline",
-                                    "capabilities": caps
-                                },
-                                "status": "OK",
-                                "detail": "Identified ESP8266 Baseline"
-                            }
-                        elif "esp32" in arch or "esp32" in board_type or "hardened" in target_hint:
-                            return {
-                                "success": True,
-                                "target": "hardened",
-                                "info": {
-                                    "port": port_name,
-                                    "chip": f"ESP32 ({info_obj.get('chip', 'DevKit')})",
-                                    "chip_info": info_obj,
-                                    "proto_ver": proto_ver,
-                                    "device_id": dev_id or "esp32-hardened",
-                                    "capabilities": caps
-                                },
-                                "status": "OK",
-                                "detail": "Identified ESP32 Hardened"
-                            }
-                        else:
-                            return {
-                                "success": False,
-                                "target": None,
-                                "info": info_obj,
-                                "status": "PORT_FOUND_HANDSHAKE_FAILED",
-                                "detail": f"Unrecognized board JSON from {port_name}: arch={arch}, board_type={board_type}"
-                            }
-                    except Exception:
-                        pass
-
-            return {
-                "success": False,
-                "target": None,
-                "info": None,
-                "status": "PORT_FOUND_HANDSHAKE_FAILED",
-                "detail": f"No valid ZeroTrace v2.0 handshake from {port_name} within 0.8s"
-            }
-        finally:
             try:
-                probe.close()
-            except Exception:
-                pass
+                try:
+                    probe.dtr = False
+                    probe.rts = False
+                except Exception:
+                    pass
+
+                # Allow line to settle and clear any boot noise
+                time.sleep(0.12)
+                try:
+                    probe.reset_input_buffer()
+                except Exception:
+                    pass
+
+                req_id = f"probe-{uuid.uuid4().hex[:8]}"
+                handshake_payload = json.dumps({"cmd": "handshake", "req_id": req_id}) + "\n"
+                try:
+                    probe.write(b"\n")
+                    probe.write(handshake_payload.encode("utf-8"))
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "target": None,
+                        "info": None,
+                        "status": "PORT_FOUND_HANDSHAKE_FAILED",
+                        "detail": f"Write failed on {port_name}: {e}"
+                    }
+
+                t_deadline = time.time() + 0.8
+                while time.time() < t_deadline:
+                    try:
+                        line_bytes = probe.readline()
+                    except Exception:
+                        break
+
+                    if not line_bytes:
+                        time.sleep(0.04)
+                        continue
+
+                    saw_bytes = True
+                    line = line_bytes.decode("utf-8", errors="replace").strip()
+                    if not line:
+                        continue
+
+                    if line.startswith("{") and line.endswith("}"):
+                        try:
+                            info_obj = json.loads(line)
+                            arch = str(info_obj.get("arch", "")).lower()
+                            target_hint = str(info_obj.get("target", "")).lower()
+                            board_type = str(info_obj.get("board_type", "")).lower()
+                            proto_ver = str(info_obj.get("proto_ver", "1.0"))
+                            caps = info_obj.get("capabilities", [])
+                            dev_id = str(info_obj.get("device_id", ""))
+
+                            if "esp8266" in arch or "esp8266" in board_type or "baseline" in target_hint:
+                                return {
+                                    "success": True,
+                                    "target": "baseline",
+                                    "info": {
+                                        "port": port_name,
+                                        "chip": f"ESP8266 ({info_obj.get('chip_id', 'ESP-12')})",
+                                        "chip_info": info_obj,
+                                        "proto_ver": proto_ver,
+                                        "device_id": dev_id or "esp8266-baseline",
+                                        "capabilities": caps
+                                    },
+                                    "status": "OK",
+                                    "detail": "Identified ESP8266 Baseline"
+                                }
+                            elif "esp32" in arch or "esp32" in board_type or "hardened" in target_hint:
+                                return {
+                                    "success": True,
+                                    "target": "hardened",
+                                    "info": {
+                                        "port": port_name,
+                                        "chip": f"ESP32 ({info_obj.get('chip', 'DevKit')})",
+                                        "chip_info": info_obj,
+                                        "proto_ver": proto_ver,
+                                        "device_id": dev_id or "esp32-hardened",
+                                        "capabilities": caps
+                                    },
+                                    "status": "OK",
+                                    "detail": "Identified ESP32 Hardened"
+                                }
+                            else:
+                                return {
+                                    "success": False,
+                                    "target": None,
+                                    "info": info_obj,
+                                    "status": "PORT_FOUND_HANDSHAKE_FAILED",
+                                    "detail": f"Unrecognized board JSON from {port_name}: arch={arch}, board_type={board_type}"
+                                }
+                        except Exception:
+                            pass
+            finally:
+                try:
+                    probe.close()
+                except Exception:
+                    pass
+
+        status = "PORT_FOUND_HANDSHAKE_FAILED" if saw_bytes else "PORT_FOUND"
+        detail = (
+            f"Non-JSON or unresponsive firmware on {port_name} (tested 115200 and 9600 baud)"
+            if saw_bytes else
+            f"No response from {port_name} within 0.8s"
+        )
+        return {
+            "success": False,
+            "target": None,
+            "info": None,
+            "status": status,
+            "detail": detail
+        }
 
     def disconnect(self, target: str) -> dict:
         if target not in self.device_states:
@@ -517,16 +543,32 @@ class DeviceService:
 
             # Begin Identification sequence
             self.set_state("SCANNING", "Scanning USB serial ports for ZeroTrace targets...")
+            self.unresponsive_ports = []
             discovered: Dict[str, dict] = {}
             loop = asyncio.get_running_loop()
 
+            now = time.time()
+            active_candidates = []
             for port_name in candidate_ports:
+                if port_name in self.failed_port_cache:
+                    cached = self.failed_port_cache[port_name]
+                    if now - cached["timestamp"] < self.failed_port_cooldown:
+                        # Skip port during cooldown window to stop repeating probe indefinitely
+                        self.unresponsive_ports.append({
+                            "port": port_name,
+                            "status": cached["status"],
+                            "detail": cached["detail"]
+                        })
+                        continue
+                active_candidates.append(port_name)
+
+            for port_name in active_candidates:
                 try:
                     self.set_state("IDENTIFYING", f"Probing {port_name} for ZeroTrace v2.0 handshake...")
                     try:
                         probe_res = await asyncio.wait_for(
                             loop.run_in_executor(None, self._sync_probe_port, port_name),
-                            timeout=1.5
+                            timeout=2.0
                         )
                     except asyncio.TimeoutError:
                         probe_res = {
@@ -534,7 +576,7 @@ class DeviceService:
                             "target": None,
                             "info": None,
                             "status": "PORT_FOUND_HANDSHAKE_FAILED",
-                            "detail": f"Port {port_name} probe timed out after 1.5s"
+                            "detail": f"Port {port_name} probe timed out after 2.0s"
                         }
 
                     if probe_res.get("success") and probe_res.get("target"):
@@ -551,12 +593,21 @@ class DeviceService:
                         else:
                             discovered[target_key] = info_data
                             logger.info(f"Identified {info_data['chip']} on {port_name}")
+                            if port_name in self.failed_port_cache:
+                                del self.failed_port_cache[port_name]
                     else:
+                        fail_status = probe_res.get("status", "PORT_FOUND_HANDSHAKE_FAILED")
+                        fail_detail = probe_res.get("detail", "Handshake failed")
                         self.unresponsive_ports.append({
                             "port": port_name,
-                            "status": probe_res.get("status", "PORT_FOUND_HANDSHAKE_FAILED"),
-                            "detail": probe_res.get("detail", "Handshake failed")
+                            "status": fail_status,
+                            "detail": fail_detail
                         })
+                        self.failed_port_cache[port_name] = {
+                            "timestamp": time.time(),
+                            "status": fail_status,
+                            "detail": fail_detail
+                        }
                 except Exception as e:
                     logger.debug(f"Could not probe port {port_name}: {e}")
                     self.unresponsive_ports.append({
@@ -564,6 +615,11 @@ class DeviceService:
                         "status": "PORT_PROBE_ERROR",
                         "detail": str(e)
                     })
+                    self.failed_port_cache[port_name] = {
+                        "timestamp": time.time(),
+                        "status": "PORT_PROBE_ERROR",
+                        "detail": str(e)
+                    }
 
             # Connect and verify newly identified devices
             if discovered:
@@ -628,19 +684,29 @@ class DeviceService:
                 is_r, fail_msg = self.is_hardware_ready()
                 if self.unresponsive_ports:
                     failed_names = ", ".join(u["port"] for u in self.unresponsive_ports)
-                    diag_msg = f"{fail_msg} (PORT_FOUND_HANDSHAKE_FAILED on: {failed_names})"
+                    # Check if failure is due to port busy or handshake failed
+                    has_busy = any(u.get("status") == "BUSY" for u in self.unresponsive_ports)
+                    if has_busy:
+                        next_state = "BUSY"
+                        diag_msg = f"{fail_msg} (Port busy or locked by another process: {failed_names})"
+                    else:
+                        next_state = "HANDSHAKE_FAILED"
+                        diag_msg = f"{fail_msg} (HANDSHAKE_FAILED on: {failed_names})"
                 elif not available:
+                    next_state = "DISCONNECTED"
                     diag_msg = "ACCESS DENIED — No ZeroTrace USB hardware detected. Connect ESP8266 and ESP32 via USB."
                 else:
+                    next_state = "DISCONNECTED"
                     diag_msg = fail_msg
 
-                self.set_state("DISCONNECTED", diag_msg)
+                self.set_state(next_state, diag_msg)
                 state_changed = True
 
             return state_changed, self.get_readiness_info()
 
     # Alias for backwards compatibility with discover endpoint
     async def discover_and_handshake(self) -> dict:
+        self.failed_port_cache.clear()
         _, info = await self.auto_scan_and_handshake()
         return info
 

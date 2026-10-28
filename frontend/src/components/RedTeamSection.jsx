@@ -34,7 +34,10 @@ export default function RedTeamSection({
   onRevokeCredential
 }) {
   const [selectedLayer, setSelectedLayer] = useState('All');
-  const [execMode, setExecMode] = useState('simulation'); // Default to demo / simulation mode so campaign is immediately accessible
+  const [execMode, setExecMode] = useState(() => {
+    // Persist exec mode across page reloads
+    return localStorage.getItem('zt_exec_mode') || 'simulation';
+  });
   const [showCredForm, setShowCredForm] = useState(false);
   const [credLifetime, setCredLifetime] = useState(600);
   const [credScope, setCredScope] = useState(['test:run', 'ota:stage', 'fault:inject', 'debug:audit']);
@@ -114,19 +117,26 @@ export default function RedTeamSection({
     }
   };
 
-  const handleStartCampaign = async () => {
-    let modeToUse = execMode;
+  // Persist exec mode to localStorage on every change
+  const setExecModeAndPersist = (mode) => {
+    localStorage.setItem('zt_exec_mode', mode);
+    setExecMode(mode);
+  };
 
-    // Automatic execution mode selection:
-    // If hardware is verified and ready, allow the existing hardware workflow.
-    // If hardware is disconnected, unverified, or unavailable, automatically select DEMO / SOFTWARE MODE.
+  const handleStartCampaign = async () => {
+    const modeToUse = execMode === 'hardware' ? 'hardware'
+                     : execMode === 'simulation' ? 'demo'
+                     : 'demo';
+
+    // HARDWARE MODE: block if hardware not ready — do NOT auto-switch
     if (modeToUse === 'hardware' && !readiness.ready) {
-      modeToUse = 'demo';
-      setExecMode('simulation');
-      setAutoFallbackMsg('Hardware unavailable — running in Demo / Software Mode');
-      setTimeout(() => setAutoFallbackMsg(null), 8000);
-    } else if (modeToUse === 'simulation') {
-      modeToUse = 'demo';
+      setAutoFallbackMsg(
+        '⛔ Hardware Mode selected but hardware not ready. ' +
+        'Connect ESP8266 + ESP32 via USB and click "Scan & Identify", ' +
+        'or switch to DEMO / SOFTWARE MODE to run without hardware.'
+      );
+      setTimeout(() => setAutoFallbackMsg(null), 10000);
+      return; // Do NOT fall back — block and return
     }
 
     try {
@@ -236,10 +246,14 @@ export default function RedTeamSection({
           background: 'var(--bg-inset)',
           padding: '4px',
           borderRadius: '10px',
-          border: '1px solid var(--border-subtle)'
-        }}>
+          border: '1px solid var(--border-subtle)',
+          opacity: campaign.is_running ? 0.6 : 1
+        }}
+        title={campaign.is_running ? "Execution mode is locked during active campaign execution" : undefined}
+        >
           <button
-            onClick={() => setExecMode('simulation')}
+            onClick={() => setExecModeAndPersist('simulation')}
+            disabled={campaign.is_running}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -249,7 +263,7 @@ export default function RedTeamSection({
               fontSize: '12px',
               fontWeight: 700,
               border: 'none',
-              cursor: 'pointer',
+              cursor: campaign.is_running ? 'not-allowed' : 'pointer',
               background: execMode === 'simulation' ? '#0284c7' : 'transparent',
               color: execMode === 'simulation' ? '#ffffff' : 'var(--text-secondary)',
               boxShadow: execMode === 'simulation' ? '0 1px 3px rgba(0,0,0,0.2)' : 'none',
@@ -259,7 +273,8 @@ export default function RedTeamSection({
             <Zap size={14} /> DEMO / SOFTWARE MODE
           </button>
           <button
-            onClick={() => setExecMode('hardware')}
+            onClick={() => setExecModeAndPersist('hardware')}
+            disabled={campaign.is_running}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -269,7 +284,7 @@ export default function RedTeamSection({
               fontSize: '12px',
               fontWeight: 700,
               border: 'none',
-              cursor: 'pointer',
+              cursor: campaign.is_running ? 'not-allowed' : 'pointer',
               background: execMode === 'hardware' ? (readiness.ready ? '#16a34a' : '#e11d48') : 'transparent',
               color: execMode === 'hardware' ? '#ffffff' : 'var(--text-secondary)',
               boxShadow: execMode === 'hardware' ? '0 1px 3px rgba(0,0,0,0.2)' : 'none',
@@ -694,7 +709,9 @@ export default function RedTeamSection({
           <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Execution Target:</span>
           <select
             value={execMode}
-            onChange={(e) => setExecMode(e.target.value)}
+            onChange={(e) => setExecModeAndPersist(e.target.value)}
+            disabled={campaign.is_running}
+            title={campaign.is_running ? "Execution mode cannot be modified while campaign is running" : "Select execution mode"}
             style={{
               padding: '6px 10px',
               borderRadius: '6px',
@@ -702,7 +719,9 @@ export default function RedTeamSection({
               background: 'var(--bg-card)',
               color: 'var(--text-primary)',
               fontSize: '12px',
-              fontWeight: 600
+              fontWeight: 600,
+              cursor: campaign.is_running ? 'not-allowed' : 'pointer',
+              opacity: campaign.is_running ? 0.6 : 1
             }}
           >
             <option value="simulation">⚡ DEMO / SOFTWARE MODE (Hardware not required)</option>
@@ -775,17 +794,16 @@ export default function RedTeamSection({
                 disabled={isExecuting || campaign.is_running}
                 title={`Run single test ${sc.id}`}
                 onClick={() => {
-                  let mode = 'simulation';
                   if (execMode === 'hardware') {
-                    if (readiness.ready) {
-                      mode = 'real';
-                    } else {
-                      mode = 'simulation';
-                      setAutoFallbackMsg(`Hardware unavailable for ${sc.id} — running in Demo / Software Mode`);
-                      setTimeout(() => setAutoFallbackMsg(null), 5000);
+                    if (!readiness.ready) {
+                      setAutoFallbackMsg(`⛔ Cannot run ${sc.id} in Hardware Mode: physical devices not verified. Switch to Demo / Software Mode or verify hardware.`);
+                      setTimeout(() => setAutoFallbackMsg(null), 8000);
+                      return; // Do NOT silently switch to simulation
                     }
+                    onExecuteTest(sc.id, 'real');
+                  } else {
+                    onExecuteTest(sc.id, 'simulation');
                   }
-                  onExecuteTest(sc.id, mode);
                 }}
               >
                 <Zap size={14} color="#e11d48" /> RUN SINGLE TEST ({sc.id})

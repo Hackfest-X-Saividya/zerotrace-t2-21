@@ -7,14 +7,19 @@ import {
 
 // State machine display config
 const STATE_CONFIG = {
-  DISCONNECTED:     { color: '#64748b', bg: 'rgba(100,116,139,0.08)', border: 'rgba(100,116,139,0.25)', icon: WifiOff,      label: 'Disconnected' },
-  SCANNING:         { color: '#0284c7', bg: 'rgba(2,132,199,0.08)',   border: 'rgba(2,132,199,0.25)',   icon: Loader,       label: 'Scanning USB Ports\u2026' },
-  IDENTIFYING:      { color: '#7c3aed', bg: 'rgba(124,58,237,0.08)', border: 'rgba(124,58,237,0.25)', icon: Cpu,          label: 'Identifying Boards\u2026' },
-  HANDSHAKING:      { color: '#ea580c', bg: 'rgba(234,88,12,0.08)',  border: 'rgba(234,88,12,0.25)',  icon: Activity,     label: 'Running Firmware Handshake\u2026' },
-  READY:            { color: '#059669', bg: 'rgba(5,150,105,0.08)',  border: 'rgba(5,150,105,0.3)',   icon: CheckCircle2, label: 'Hardware Ready' },
-  DEVICE_ERROR:     { color: '#e11d48', bg: 'rgba(225,29,72,0.08)',  border: 'rgba(225,29,72,0.3)',   icon: AlertTriangle, label: 'Device Error' },
-  CAMPAIGN_RUNNING: { color: '#059669', bg: 'rgba(5,150,105,0.08)',  border: 'rgba(5,150,105,0.3)',   icon: Radio,        label: 'Campaign Running' },
-  CAMPAIGN_STOPPED: { color: '#64748b', bg: 'rgba(100,116,139,0.08)', border: 'rgba(100,116,139,0.25)', icon: ShieldCheck, label: 'Campaign Stopped' },
+  DISCONNECTED:         { color: '#64748b', bg: 'rgba(100,116,139,0.08)', border: 'rgba(100,116,139,0.25)', icon: WifiOff,      label: 'Disconnected' },
+  PORT_FOUND:           { color: '#0284c7', bg: 'rgba(2,132,199,0.08)',   border: 'rgba(2,132,199,0.25)',   icon: Usb,          label: 'USB Port Detected' },
+  SCANNING:             { color: '#0284c7', bg: 'rgba(2,132,199,0.08)',   border: 'rgba(2,132,199,0.25)',   icon: Loader,       label: 'Scanning USB Ports\u2026' },
+  IDENTIFYING:          { color: '#7c3aed', bg: 'rgba(124,58,237,0.08)', border: 'rgba(124,58,237,0.25)', icon: Cpu,          label: 'Identifying Boards\u2026' },
+  HANDSHAKING:          { color: '#ea580c', bg: 'rgba(234,88,12,0.08)',  border: 'rgba(234,88,12,0.25)',  icon: Activity,     label: 'Running Firmware Handshake\u2026' },
+  HANDSHAKE_FAILED:     { color: '#ef4444', bg: 'rgba(239,68,68,0.08)',  border: 'rgba(239,68,68,0.25)',  icon: AlertCircle,  label: 'Handshake Failed' },
+  CONNECTED_UNVERIFIED: { color: '#f59e0b', bg: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.25)', icon: AlertTriangle, label: 'Connected (Unverified)' },
+  READY:                { color: '#059669', bg: 'rgba(5,150,105,0.08)',  border: 'rgba(5,150,105,0.3)',   icon: CheckCircle2, label: 'Hardware Ready' },
+  BUSY:                 { color: '#eab308', bg: 'rgba(234,179,8,0.08)',   border: 'rgba(234,179,8,0.25)',   icon: Clock,        label: 'Device Busy / Port Locked' },
+  ERROR:                { color: '#e11d48', bg: 'rgba(225,29,72,0.08)',  border: 'rgba(225,29,72,0.3)',   icon: AlertTriangle, label: 'Error' },
+  DEVICE_ERROR:         { color: '#e11d48', bg: 'rgba(225,29,72,0.08)',  border: 'rgba(225,29,72,0.3)',   icon: AlertTriangle, label: 'Device Error' },
+  CAMPAIGN_RUNNING:     { color: '#059669', bg: 'rgba(5,150,105,0.08)',  border: 'rgba(5,150,105,0.3)',   icon: Radio,        label: 'Campaign Running' },
+  CAMPAIGN_STOPPED:     { color: '#64748b', bg: 'rgba(100,116,139,0.08)', border: 'rgba(100,116,139,0.25)', icon: ShieldCheck, label: 'Campaign Stopped' },
 };
 
 function StateIcon({ state, size = 20 }) {
