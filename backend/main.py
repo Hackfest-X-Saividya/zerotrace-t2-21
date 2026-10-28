@@ -20,7 +20,7 @@ from collections import deque
 
 import serial
 import serial.tools.list_ports
-from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Request, Depends, Response
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Request, Depends, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
@@ -52,6 +52,7 @@ from backend.layers.layer1.service import layer1_service
 from backend.layers.layer2.service import layer2_service
 from backend.layers.layer3.service import layer3_service
 from backend.layers.layer4.service import layer4_service
+from backend.waveform.engine import waveform_engine
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("ZeroTraceBackend")
@@ -922,6 +923,46 @@ async def execute_test(req: ExecuteTestRequest):
         {"event_id": f"WF-{req_id[:8]}-4", "campaign_id": cid, "scenario_id": scenario["id"], "layer": lyr, "timestamp_ms": wf_t2 + 5, "elapsed_ms": wf_t2 + 5, "signal_type": "evidence", "value": 100, "unit": unit, "event_name": "EVIDENCE_SAVED", "source": "system", "execution_mode": exec_mode, "evidence_classification": ev_level},
     ]
 
+    # Ingest into unified real-time Waveform Engine
+    rec1 = waveform_engine.record(
+        run_id=req_id,
+        scenario_id=scenario["id"],
+        signal_name="RedTeam_Trigger",
+        source=exec_mode,
+        value=80.0,
+        unit="state",
+        event_type="ATTACK_DISPATCHED",
+        message=f"Test executed: {scenario.get('name', '')}",
+        evidence_id=result_entry["id"]
+    )
+    rec2 = waveform_engine.record(
+        run_id=req_id,
+        scenario_id=scenario["id"],
+        signal_name="BlueTeam_Defense",
+        source=exec_mode,
+        value=10.0 if result_entry.get("status_hardened") == "PASS" else 85.0,
+        unit="state",
+        event_type="DEFENSE_VERDICT",
+        message=f"Observed defense: {h_res.get('observed', '')}",
+        evidence_id=result_entry["id"]
+    )
+    if latency_h is not None:
+        rec3 = waveform_engine.record(
+            run_id=req_id,
+            scenario_id=scenario["id"],
+            signal_name="UART_Latency_ms",
+            source=exec_mode,
+            value=float(latency_h),
+            unit="ms",
+            event_type="LATENCY_MEASURED",
+            message=f"Roundtrip latency: {latency_h} ms",
+            evidence_id=result_entry["id"]
+        )
+        asyncio.create_task(waveform_engine.broadcast_record(rec3))
+
+    asyncio.create_task(waveform_engine.broadcast_record(rec1))
+    asyncio.create_task(waveform_engine.broadcast_record(rec2))
+
     test_history.append(result_entry)
     metrics_counter["total_tests"] += 1
     if result_entry["status_hardened"] == "PASS":
@@ -1315,6 +1356,42 @@ async def export_waveforms(format: str = Query("json", pattern="^(json|csv)$")):
             "total_events": len(all_events),
             "campaign_id": campaign_state.get("campaign_id", "camp-default")
         })
+
+# --- Real-Time Waveform & Streaming Telemetry Engine Routes ---
+@app.get("/api/waveform/records")
+async def get_waveform_records(scenario_id: Optional[str] = None, run_id: Optional[str] = None, limit: int = 200):
+    """Retrieve ring-buffered waveform telemetry records."""
+    return {"records": waveform_engine.get_records(scenario_id=scenario_id, run_id=run_id, limit=limit)}
+
+@app.get("/api/waveform/export")
+async def export_waveform_csv(scenario_id: Optional[str] = None, run_id: Optional[str] = None):
+    """Export unified waveform CSV with documented timestamps and genuine measurements."""
+    csv_data = waveform_engine.export_csv(scenario_id=scenario_id, run_id=run_id)
+    filename = f"waveform_{scenario_id or 'campaign'}.csv"
+    return Response(
+        content=csv_data,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+@app.get("/api/waveform/figure")
+async def get_waveform_figure(scenario_id: Optional[str] = None, run_id: Optional[str] = None):
+    """Returns a Plotly-compatible JSON figure specification."""
+    return waveform_engine.generate_plotly_figure_dict(scenario_id=scenario_id, run_id=run_id)
+
+@app.websocket("/api/waveform/stream")
+async def websocket_waveform_stream(websocket: WebSocket):
+    """Real-time WebSocket streaming for Plotly.js incremental trace extension."""
+    await websocket.accept()
+    await waveform_engine.register_websocket(websocket)
+    try:
+        while True:
+            # Receive client ping or keepalive
+            await websocket.receive_text()
+    except (WebSocketDisconnect, Exception):
+        pass
+    finally:
+        await waveform_engine.unregister_websocket(websocket)
 
 @app.get("/api/results")
 async def get_results(limit: int = Query(100, ge=1, le=200)):

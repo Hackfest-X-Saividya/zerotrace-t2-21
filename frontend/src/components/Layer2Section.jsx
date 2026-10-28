@@ -9,110 +9,118 @@ import {
   Download,
   FileText,
   Activity,
-  ArrowRight,
   CheckCircle2,
-  Lock,
-  Layers,
-  Clock,
-  Sparkles,
-  Info
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
+import WaveformPlotlyChart from './WaveformPlotlyChart';
 
 export default function Layer2Section({ onExecuteLayer2, isExecuting }) {
   const [status, setStatus] = useState(null);
   const [selectedScenario, setSelectedScenario] = useState('INSTRUCTION_SKIP_SIMULATED');
   const [results, setResults] = useState({});
   const [lastResult, setLastResult] = useState(null);
-  const [activePipelineStep, setActivePipelineStep] = useState(0);
+  const [expandedId, setExpandedId] = useState(null);
 
   const scenarios = [
     {
       id: 'NORMAL',
       code: 'L2-01',
-      title: 'Nominal Redundant Check',
-      csf: 'PR.DS-01',
-      risk: 'LOW',
-      desc: 'Dual-rail registers R1 and R2 maintain exact bitwise complement. Verifies nominal SBFT invariant check.'
+      title: 'Loop Integrity Check',
+      attempted: 'Triggered redundant loop unroll computation to assert arithmetic parity.',
+      protection_what: 'Dual redundant accumulators matched expected counter state (100 == 100).',
+      capability: 'HARDWARE_SUPPORTED',
+      desc: 'Independent loop unroll computation verified by firmware invariant check.'
     },
     {
       id: 'INSTRUCTION_SKIP_SIMULATED',
       code: 'L2-02',
       title: 'Simulated Glitch / Instruction Skip',
-      csf: 'DE.CM-01',
-      risk: 'MEDIUM',
-      desc: 'Simulated 120ns voltage glitch targeting branch logic. Hardened traps single-iteration loop skip.'
+      attempted: 'Simulated single-instruction skip fault targeting branch logic.',
+      protection_what: 'Dual-rail SBFT register check trapped state bit-flip and triggered safe halt.',
+      capability: 'HARDWARE_SUPPORTED',
+      desc: 'Hardened dual-rail invariant traps single bit-flip execution anomaly.'
     },
     {
       id: 'CHECK_STATE_CORRUPTED',
       code: 'L2-03',
-      title: 'State Register Invariant Corruption',
-      csf: 'DE.CM-01',
-      risk: 'HIGH',
-      desc: 'Simulated transient corrupts state register R1. Dual-rail invariant fails and triggers atomic halt.'
+      title: 'Authorization Branch Check',
+      attempted: 'Corrupted conditional authorization flag to simulate privilege escalation.',
+      protection_what: 'Multi-check complementary token check detected single-variable tampering.',
+      capability: 'HARDWARE_SUPPORTED',
+      desc: 'Dual complementary token check enforces fail-closed authorization.'
     },
     {
       id: 'COMMUNICATION_ERROR',
       code: 'L2-04',
-      title: 'Transit UART / CRC-16 Integrity Fault',
-      csf: 'PR.DS-01',
-      risk: 'MEDIUM',
-      desc: 'Transit line jitter flips bits in transit frame. CRC checksum failure drops packet without mutation.'
+      title: 'Transit UART Integrity Fault',
+      attempted: 'Injected bit flips in transit communication frame.',
+      protection_what: 'CRC checksum failure dropped packet without mutating target memory.',
+      capability: 'SOFTWARE_TEST',
+      desc: 'Transit jitter and framing bit-error rejection.'
     },
     {
       id: 'WATCHDOG_RESET',
       code: 'L2-05',
-      title: 'Hardware Watchdog Timer Expiration',
-      csf: 'PR.IP-01',
-      risk: 'HIGH',
-      desc: 'Deadlock spinlock injected in target main loop. Hardware WDT expires (1.5s) and executes clean reboot.'
+      title: 'Watchdog Timer Expiration',
+      attempted: 'Injected infinite loop spinlock into main task execution.',
+      protection_what: 'Hardware watchdog timer expired and performed clean CPU reboot.',
+      capability: 'SOFTWARE_TEST',
+      desc: 'Deadlock spinlock detected by watchdog timer.'
     },
     {
       id: 'RECOVERY_VERIFICATION',
       code: 'L2-06',
       title: 'Safe-State Recovery & Re-sync',
-      csf: 'RC.RP-01',
-      risk: 'LOW',
-      desc: 'Restores golden dual-rail register state and re-verifies invariant arithmetic balance.'
+      attempted: 'Requested recovery sequence following execution anomaly.',
+      protection_what: 'Restored golden dual-rail register state and affirmed arithmetic balance.',
+      capability: 'SOFTWARE_TEST',
+      desc: 'Restores golden register state and verifies parity.'
     },
     {
       id: 'MALFORMED_MESSAGE',
       code: 'L2-07',
-      title: 'Oversized / Malformed Message Rejection',
-      csf: 'PR.DS-01',
-      risk: 'MEDIUM',
-      desc: 'Boundary fuzzing payload exceeding frame capacity. Buffer boundary defense rejects packet.'
+      title: 'Malformed Message Rejection',
+      attempted: 'Sent oversized payload exceeding frame capacity bounds.',
+      protection_what: 'Buffer boundary enforcement rejected malformed frame.',
+      capability: 'SOFTWARE_TEST',
+      desc: 'Boundary fuzzing payload exceeding frame capacity.'
     },
     {
       id: 'REPLAY_REQUEST',
       code: 'L2-08',
-      title: 'Duplicate Replay Sequence Attack',
-      csf: 'PR.AC-07',
-      risk: 'MEDIUM',
-      desc: 'Re-transmits previously acknowledged frame counter. Sequence validator drops replay.'
+      title: 'Duplicate Sequence Replay',
+      attempted: 'Re-transmitted previously acknowledged sequence counter.',
+      protection_what: 'Sequence validator dropped duplicate frame.',
+      capability: 'SOFTWARE_TEST',
+      desc: 'Sequence counter deduplication filter.'
     },
     {
       id: 'STALE_OUT_OF_ORDER',
       code: 'L2-09',
       title: 'Out-of-Sequence Frame Injection',
-      csf: 'PR.AC-07',
-      risk: 'LOW',
-      desc: 'Submits packet with seq #14 when seq #42 is expected. Window sliding filter rejects stale frame.'
+      attempted: 'Injected frame with stale sequence index.',
+      protection_what: 'Sliding window filter rejected out-of-order frame.',
+      capability: 'SOFTWARE_TEST',
+      desc: 'Sliding window packet filter.'
     },
     {
       id: 'TIMEOUT_DROPPED',
       code: 'L2-10',
       title: 'Heartbeat Packet Drop Failsafe',
-      csf: 'DE.AE-02',
-      risk: 'MEDIUM',
-      desc: 'Transit stream dropped mid-burst. Target watchdog heartbeat timer detects dropout and enters failsafe.'
+      attempted: 'Simulated complete telemetry stream dropout.',
+      protection_what: 'Heartbeat supervisor detected dropout and transitioned to failsafe.',
+      capability: 'SOFTWARE_TEST',
+      desc: 'Heartbeat timeout failsafe trigger.'
     },
     {
       id: 'FAIL_CLOSED_VERIFICATION',
       code: 'L2-11',
-      title: 'Fail-Closed Protected Data Zeroization',
-      csf: 'PR.DS-02',
-      risk: 'HIGH',
-      desc: 'Verifies that under severe injected fault, cryptographic keys and protected registers are zeroized.'
+      title: 'Fail-Closed Data Zeroization',
+      attempted: 'Injected severe execution fault to test memory zeroization.',
+      protection_what: 'Secret buffer zeroized; zero bytes leaked to external buses.',
+      capability: 'SOFTWARE_TEST',
+      desc: 'Under severe fault, sensitive registers are zeroized.'
     }
   ];
 
@@ -122,12 +130,10 @@ export default function Layer2Section({ onExecuteLayer2, isExecuting }) {
       if (res.ok) {
         const data = await res.json();
         setStatus(data);
-        if (data.latest_run && !lastResult) {
-          setLastResult(data.latest_run);
-        }
+        if (data.latest_run && !lastResult) setLastResult(data.latest_run);
       }
-    } catch (e) {
-      console.warn('Could not fetch Layer 2 status:', e);
+    } catch {
+      // non-blocking
     }
   };
 
@@ -138,77 +144,35 @@ export default function Layer2Section({ onExecuteLayer2, isExecuting }) {
   const handleRun = async (scId) => {
     const sc = scId || selectedScenario;
     setSelectedScenario(sc);
-    if (typeof onExecuteLayer2 !== 'function') {
-      alert('Layer 2 execution handler not configured.');
-      return;
-    }
-
-    setActivePipelineStep(1);
-    const stepTimer1 = setTimeout(() => setActivePipelineStep(2), 200);
-    const stepTimer2 = setTimeout(() => setActivePipelineStep(3), 400);
-    const stepTimer3 = setTimeout(() => setActivePipelineStep(4), 600);
-
+    if (typeof onExecuteLayer2 !== 'function') return;
     try {
       const res = await onExecuteLayer2(sc);
       if (res) {
-        setResults((prev) => ({ ...prev, [sc]: res }));
+        setResults(prev => ({ ...prev, [sc]: res }));
         setLastResult(res);
       }
       fetchStatus();
     } catch (err) {
       console.error('Layer 2 execution error:', err);
-    } finally {
-      clearTimeout(stepTimer1);
-      clearTimeout(stepTimer2);
-      clearTimeout(stepTimer3);
-      setTimeout(() => setActivePipelineStep(0), 1000);
     }
-  };
-
-  const handleExport = (format) => {
-    const runId = lastResult?.run_id ? `&run_id=${encodeURIComponent(lastResult.run_id)}` : '';
-    window.location.href = `/api/layer2/export?format=${format}${runId}`;
   };
 
   // Real summary counts
   const totalScenarios = scenarios.length;
   const completedCount = Object.keys(results).length;
   const passedCount = Object.values(results).filter(
-    (r) => r.hardened?.status === 'PASS' || r.status === 'PASS' || r.verdict === 'PASS' || r.defense_enforced
+    r => r.hardened?.status === 'PASS' || r.status === 'PASS' || r.verdict === 'PASS'
   ).length;
   const failedCount = completedCount - passedCount;
 
-  const currentScenarioObj = scenarios.find((s) => s.id === selectedScenario) || scenarios[0];
-  const activeRes = results[selectedScenario] || lastResult;
-
-  const isInvariantHealthy =
-    status?.dual_rail_verified ??
-    (status?.state_r1 &&
-      status?.state_r2 &&
-      (parseInt(status.state_r1, 16) ^ parseInt(status.state_r2, 16)) === 0xffffffff);
-
-  const getStatusBadge = (scId) => {
+  const getCardVerdict = (scId) => {
     const res = results[scId];
-    if (!res) {
-      return (
-        <span style={{ fontSize: '10px', fontWeight: 600, padding: '2px 7px', borderRadius: '4px', background: 'var(--bg-subtle)', color: 'var(--text-muted)' }}>
-          Pending
-        </span>
-      );
-    }
-    const passed = res.hardened?.status === 'PASS' || res.status === 'PASS' || res.verdict === 'PASS' || res.defense_enforced;
-    return (
-      <span style={{
-        fontSize: '10px',
-        fontWeight: 700,
-        padding: '2px 7px',
-        borderRadius: '4px',
-        background: passed ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
-        color: passed ? 'var(--rc-color)' : 'var(--sev-critical)'
-      }}>
-        {passed ? 'Passed' : 'Failed'}
-      </span>
-    );
+    if (!res) return { label: 'Not verified', badgeClass: 'pending' };
+    const passed = res.hardened?.status === 'PASS' || res.status === 'PASS' || res.verdict === 'PASS';
+    return {
+      label: passed ? 'Passed' : 'Failed',
+      badgeClass: passed ? 'pass' : 'fail'
+    };
   };
 
   return (
@@ -220,11 +184,11 @@ export default function Layer2Section({ onExecuteLayer2, isExecuting }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Cpu size={18} color="var(--de-color)" />
               <h2 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-                Layer 2 — Fault and Execution Integrity
+                Layer 2 — Hardware Security Tests
               </h2>
             </div>
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '4px 0 0 0', lineHeight: 1.4 }}>
-              Checks how the system responds to unexpected execution conditions and invalid state changes.
+              Checks how connected devices respond to supported fault and execution-integrity tests.
             </p>
           </div>
           <span className="csf-tag de" style={{ fontSize: '10px', padding: '3px 8px' }}>
@@ -236,7 +200,7 @@ export default function Layer2Section({ onExecuteLayer2, isExecuting }) {
       {/* 2. Summary Bar */}
       <div className="unified-summary-bar">
         <div className="unified-summary-pill">
-          <span className="lbl">Total Scenarios</span>
+          <span className="lbl">Total Tests</span>
           <span className="val">{totalScenarios}</span>
         </div>
         <div className="unified-summary-pill">
@@ -244,243 +208,156 @@ export default function Layer2Section({ onExecuteLayer2, isExecuting }) {
           <span className="val" style={{ color: 'var(--de-color)' }}>{completedCount}</span>
         </div>
         <div className="unified-summary-pill">
-          <span className="lbl">Passed Scenarios</span>
+          <span className="lbl">Passed Tests</span>
           <span className="val" style={{ color: 'var(--rc-color)' }}>{passedCount}</span>
         </div>
         <div className="unified-summary-pill">
-          <span className="lbl">Failed Scenarios</span>
+          <span className="lbl">Failed Tests</span>
           <span className="val" style={{ color: failedCount > 0 ? 'var(--sev-critical)' : 'var(--text-muted)' }}>{failedCount}</span>
         </div>
       </div>
 
-      {/* 3. Compact 4-Stage Event Flow */}
-      <div className="panel-card" style={{ padding: '14px 18px' }}>
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' }}>
-          Fault Tolerance Event Flow
-        </div>
-        <div className="unified-pipeline-bar">
-          <div className="unified-pipeline-step" style={{ borderColor: activePipelineStep === 1 ? 'var(--de-color)' : undefined }}>
-            <span className="num">1</span>
-            <span className="title">Test input prepared</span>
-          </div>
-          <div className="unified-pipeline-step" style={{ borderColor: activePipelineStep === 2 ? 'var(--de-color)' : undefined }}>
-            <span className="num">2</span>
-            <span className="title">Execution evaluated</span>
-          </div>
-          <div className="unified-pipeline-step" style={{ borderColor: activePipelineStep === 3 ? 'var(--de-color)' : undefined }}>
-            <span className="num">3</span>
-            <span className="title">Integrity checks applied</span>
-          </div>
-          <div className="unified-pipeline-step" style={{ borderColor: activePipelineStep === 4 ? 'var(--de-color)' : undefined }}>
-            <span className="num">4</span>
-            <span className="title">Result recorded</span>
-          </div>
-        </div>
-      </div>
+      {/* 3. Real-Time Waveform Viewer */}
+      <WaveformPlotlyChart
+        scenarioId={selectedScenario}
+        activeResult={results[selectedScenario] || lastResult}
+        height={240}
+      />
 
-      {/* 4. Live Dual-Rail Registers & SBFT Invariants */}
-      <div className="panel-card" style={{ padding: '14px 18px' }}>
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '10px' }}>
-          Dual-Rail Registers & Execution State
-        </div>
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-          gap: '10px'
-        }}>
-          <div style={{ padding: '10px 12px', borderRadius: '6px', background: 'var(--bg-inset)', border: '1px solid var(--border-subtle)' }}>
-            <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Primary Register (R1)</div>
-            <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
-              {status?.state_r1 || '0xAA55AA55'}
-            </div>
-            <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Active execution counter</div>
-          </div>
-          <div style={{ padding: '10px 12px', borderRadius: '6px', background: 'var(--bg-inset)', border: '1px solid var(--border-subtle)' }}>
-            <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Complement (R2)</div>
-            <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
-              {status?.state_r2 || '0x55AA55AA'}
-            </div>
-            <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Bitwise inverted (~R1)</div>
-          </div>
-          <div style={{ padding: '10px 12px', borderRadius: '6px', background: 'var(--bg-inset)', border: '1px solid var(--border-subtle)' }}>
-            <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Invariant Condition</div>
-            <div style={{
-              fontSize: '13px',
-              fontWeight: 800,
-              color: isInvariantHealthy ? 'var(--rc-color)' : 'var(--sev-critical)',
-              marginTop: '4px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px'
-            }}>
-              {isInvariantHealthy ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
-              {isInvariantHealthy ? 'VALID (R1 ^ R2 == 0xFFFFFFFF)' : 'ANOMALY DETECTED'}
-            </div>
-            <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Arithmetic parity check</div>
-          </div>
-          <div style={{ padding: '10px 12px', borderRadius: '6px', background: 'var(--bg-inset)', border: '1px solid var(--border-subtle)' }}>
-            <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>System State</div>
-            <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--rc-color)', marginTop: '3px' }}>
-              {status?.system_state || 'NORMAL_OPERATION'}
-            </div>
-            <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Hardware supervisor active</div>
-          </div>
-        </div>
-      </div>
-
-      {/* 5. Scenarios Grid (Unified 4-column responsive) */}
+      {/* 4. Unified Scenarios Grid */}
       <div className="panel-card" style={{ padding: '16px 20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
           <h3 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-            Fault & Execution Integrity Scenarios (11 Scenarios)
+            Hardware & Fault-Tolerance Tests (11 Tests)
           </h3>
           <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-            Click card or Run button to execute
+            L2-01..L2-03 genuine hardware firmware integrated
           </span>
         </div>
 
         <div className="unified-scenario-grid">
           {scenarios.map((sc) => {
-            const isSelected = selectedScenario === sc.id;
+            const res = results[sc.id];
+            const verdict = getCardVerdict(sc.id);
+            const isExpanded = expandedId === sc.id;
+
             return (
               <div
                 key={sc.id}
-                className="unified-card"
-                onClick={() => setSelectedScenario(sc.id)}
-                style={{
-                  borderColor: isSelected ? 'var(--de-color)' : undefined,
-                  background: isSelected ? 'rgba(245, 158, 11, 0.04)' : undefined,
-                  cursor: 'pointer'
-                }}
+                className={`unified-card ${isExpanded ? 'selected' : ''}`}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span className="unified-card-id">{sc.code}</span>
-                  {getStatusBadge(sc.id)}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span className="unified-card-id">{sc.code}</span>
+                    <span style={{
+                      fontSize: '9px',
+                      fontWeight: 700,
+                      padding: '1px 5px',
+                      borderRadius: '4px',
+                      background: sc.capability === 'HARDWARE_SUPPORTED' ? 'rgba(2, 132, 199, 0.1)' : 'var(--bg-subtle)',
+                      color: sc.capability === 'HARDWARE_SUPPORTED' ? 'var(--pr-color)' : 'var(--text-muted)'
+                    }}>
+                      {sc.capability === 'HARDWARE_SUPPORTED' ? 'Hardware' : 'Software'}
+                    </span>
+                  </div>
+
+                  <span style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    padding: '2px 7px',
+                    borderRadius: '4px',
+                    background: verdict.badgeClass === 'pass'
+                      ? 'rgba(16, 185, 129, 0.12)'
+                      : verdict.badgeClass === 'fail'
+                      ? 'rgba(239, 68, 68, 0.12)'
+                      : 'var(--bg-subtle)',
+                    color: verdict.badgeClass === 'pass'
+                      ? 'var(--rc-color)'
+                      : verdict.badgeClass === 'fail'
+                      ? 'var(--sev-critical)'
+                      : 'var(--text-muted)'
+                  }}>
+                    {verdict.label}
+                  </span>
                 </div>
 
-                <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.3 }}>
-                  {sc.code} — {sc.title}
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.3 }}>
+                    {sc.title}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px', lineHeight: 1.35 }}>
+                    <strong style={{ color: 'var(--text-primary)' }}>Test:</strong> {sc.attempted}
+                  </div>
                 </div>
 
-                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.4, flex: 1 }}>
-                  {sc.desc}
+                <div style={{
+                  padding: '8px 10px',
+                  borderRadius: '6px',
+                  background: 'var(--bg-inset)',
+                  border: '1px solid var(--border-subtle)',
+                  fontSize: '11px',
+                  color: 'var(--text-secondary)',
+                  lineHeight: 1.35
+                }}>
+                  <div style={{ fontWeight: 700, color: 'var(--de-color)', marginBottom: '2px' }}>
+                    What happened:
+                  </div>
+                  <div>
+                    {res ? (res.hardened?.details || sc.protection_what) : sc.protection_what}
+                  </div>
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px', borderTop: '1px solid var(--border-subtle)', paddingTop: '6px' }}>
-                  <span style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)' }}>{sc.csf}</span>
                   <button
                     className="btn-ghost"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRun(sc.id);
-                    }}
+                    onClick={() => setExpandedId(isExpanded ? null : sc.id)}
+                    style={{ fontSize: '10px', padding: '3px 8px', height: '24px' }}
+                  >
+                    {isExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                    {isExpanded ? 'Hide' : 'View Details'}
+                  </button>
+
+                  <button
+                    className="btn-ghost"
+                    onClick={() => handleRun(sc.id)}
                     disabled={isExecuting}
                     style={{ fontSize: '10px', padding: '3px 8px', height: '24px' }}
                   >
                     <Play size={10} /> Run
                   </button>
                 </div>
+
+                {isExpanded && (
+                  <div style={{
+                    marginTop: '8px',
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                    background: 'var(--bg-subtle)',
+                    border: '1px solid var(--border-subtle)',
+                    fontSize: '10px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px'
+                  }}>
+                    <div>
+                      <strong style={{ color: 'var(--text-primary)' }}>Observed Response:</strong> <span style={{ fontFamily: 'var(--font-mono)' }}>{res?.hardened?.observed || 'N/A'}</span>
+                    </div>
+                    <div>
+                      <strong style={{ color: 'var(--text-primary)' }}>Baseline Check:</strong> {res?.baseline?.status || 'N/A'} ({res?.baseline?.observed || 'N/A'})
+                    </div>
+                    {/* Embedded Plotly Trace */}
+                    <div style={{ marginTop: '6px' }}>
+                      <WaveformPlotlyChart scenarioId={sc.id} activeResult={res} height={160} />
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
       </div>
 
-      {/* 6. Structured Results Area */}
-      {activeRes && (
-        <div className="panel-card" style={{ padding: '16px 20px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
-            <h4 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-              Scenario Result: {currentScenarioObj.code} — {currentScenarioObj.title}
-            </h4>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Verification Status:</span>
-              {getStatusBadge(selectedScenario)}
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px', marginBottom: '12px' }}>
-            {/* Vulnerable Baseline */}
-            <div style={{
-              padding: '12px 14px',
-              borderRadius: '8px',
-              background: 'rgba(239, 68, 68, 0.05)',
-              border: '1px solid rgba(239, 68, 68, 0.2)'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--sev-critical)' }}>
-                  Target A (ESP8266 Baseline)
-                </span>
-                <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--sev-critical)' }}>
-                  {activeRes.baseline?.status || 'FAIL'}
-                </span>
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                <strong>Expected:</strong> Vulnerable to execution fault without software fault tolerance
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                <strong>Observed:</strong> <span style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{activeRes.baseline?.observed || 'WEAKNESS_OBSERVED'}</span>
-              </div>
-              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                {activeRes.baseline?.details || 'Single execution rail allows instruction bypass or corrupt state.'}
-              </div>
-            </div>
-
-            {/* Hardened Target */}
-            <div style={{
-              padding: '12px 14px',
-              borderRadius: '8px',
-              background: 'rgba(16, 185, 129, 0.05)',
-              border: '1px solid rgba(16, 185, 129, 0.2)'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--rc-color)' }}>
-                  Target B (ESP32 Hardened)
-                </span>
-                <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--rc-color)' }}>
-                  {activeRes.hardened?.status || 'PASS'}
-                </span>
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                <strong>Expected:</strong> Dual-rail arithmetic invariant check traps fault & enters failsafe
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                <strong>Observed:</strong> <span style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{activeRes.hardened?.observed || 'DEFENSE_ENFORCED'}</span>
-              </div>
-              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                {activeRes.hardened?.details || 'Dual-rail arithmetic check detected execution anomaly; failsafe triggered.'}
-              </div>
-            </div>
-          </div>
-
-          {/* Compact Oscilloscope Waveform */}
-          <div style={{
-            background: '#090d16',
-            borderRadius: '6px',
-            border: '1px solid rgba(255,255,255,0.08)',
-            padding: '12px',
-            marginTop: '8px'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', fontSize: '11px' }}>
-              <span style={{ color: '#fff', fontWeight: 700 }}>Signal & Parity Waveform Analysis</span>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <span style={{ color: '#f59e0b', fontSize: '10px' }}>● CH1: Fault Pulse</span>
-                <span style={{ color: '#06b6d4', fontSize: '10px' }}>● CH2: Invariant Check</span>
-              </div>
-            </div>
-            <svg viewBox="0 0 800 90" style={{ width: '100%', height: 'auto', display: 'block' }}>
-              <line x1="20" y1="75" x2="780" y2="75" stroke="rgba(255,255,255,0.12)" strokeWidth="1" strokeDasharray="3 3" />
-              <line x1="20" y1="20" x2="780" y2="20" stroke="rgba(255,255,255,0.12)" strokeWidth="1" strokeDasharray="3 3" />
-              <path d="M 20 75 L 220 75 L 220 20 L 340 20 L 340 75 L 780 75" fill="none" stroke="#f59e0b" strokeWidth="2" />
-              <path d={selectedScenario === 'NORMAL' ? "M 20 20 L 780 20" : "M 20 20 L 260 20 L 260 65 L 500 65 L 500 25 L 780 25"} fill="none" stroke="#06b6d4" strokeWidth="2" />
-              <circle cx="220" cy="20" r="3" fill="#f59e0b" />
-              <circle cx="260" cy="65" r="3" fill="#06b6d4" />
-            </svg>
-          </div>
-        </div>
-      )}
-
-      {/* 7. Multi-Format Evidence Export Toolbar */}
+      {/* 5. Multi-Format Evidence Export Toolbar */}
       <div className="panel-card" style={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -499,13 +376,13 @@ export default function Layer2Section({ onExecuteLayer2, isExecuting }) {
         </div>
 
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <button className="btn-ghost" onClick={() => handleExport('csv')} style={{ fontSize: '11px', padding: '5px 10px' }}>
+          <button className="btn-ghost" onClick={() => window.location.href = '/api/evidence/export?format=csv'} style={{ fontSize: '11px', padding: '5px 10px' }}>
             <Download size={12} /> Export CSV
           </button>
-          <button className="btn-ghost" onClick={() => handleExport('json')} style={{ fontSize: '11px', padding: '5px 10px' }}>
+          <button className="btn-ghost" onClick={() => window.location.href = '/api/evidence/export?format=json'} style={{ fontSize: '11px', padding: '5px 10px' }}>
             <FileText size={12} /> Export JSON
           </button>
-          <button className="btn-ghost" onClick={() => handleExport('pdf')} style={{ fontSize: '11px', padding: '5px 10px' }}>
+          <button className="btn-ghost" onClick={() => window.location.href = '/api/evidence/export?format=pdf'} style={{ fontSize: '11px', padding: '5px 10px' }}>
             <FileText size={12} /> Export PDF Report
           </button>
         </div>

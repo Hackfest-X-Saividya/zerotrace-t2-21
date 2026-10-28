@@ -8,12 +8,14 @@ import {
   Unlock,
   AlertTriangle,
   CheckCircle2,
-  RotateCcw,
   Database,
   Download,
   FileText,
-  Activity
+  Activity,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
+import WaveformPlotlyChart from './WaveformPlotlyChart';
 
 export default function Layer4Section({ onExecuteLayer4, isExecuting, onOpenConfirmSanitize }) {
   const [datasets, setDatasets] = useState([]);
@@ -21,19 +23,20 @@ export default function Layer4Section({ onExecuteLayer4, isExecuting, onOpenConf
   const [selectedScenario, setSelectedScenario] = useState('L4-01');
   const [results, setResults] = useState({});
   const [lastResult, setLastResult] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
   const [actionFeedback, setActionFeedback] = useState(null);
 
   const scenarios = [
-    { code: 'L4-01', title: 'Secure Data Encryption', csf: 'PR.DS-01', risk: 'LOW', desc: 'Encrypts telemetry record with dedicated AES-256-GCM data encryption key (DEK).' },
-    { code: 'L4-02', title: 'Decryption Verification', csf: 'PR.DS-01', risk: 'LOW', desc: 'Verifies ciphertext roundtrip authenticity and plaintext integrity with active key.' },
-    { code: 'L4-03', title: 'Tamper Detection', csf: 'DE.CM-01', risk: 'HIGH', desc: 'Mutates 1 byte in ciphertext; asserts cryptographic authentication tag mismatch.' },
-    { code: 'L4-04', title: 'Access Control', csf: 'PR.AC-01', risk: 'HIGH', desc: 'Negative test: attempts key zeroization without authorized credential; asserts 403.' },
-    { code: 'L4-05', title: 'Key Sanitization', csf: 'PR.DS-02', risk: 'HIGH', desc: 'Cryptographic erasure: overwrites volatile key bytes with zeros in RAM buffer.' },
-    { code: 'L4-06', title: 'Key Revocation', csf: 'PR.AC-07', risk: 'HIGH', desc: 'Revokes key state in registry; prevents further cryptographic read/write operations.' },
-    { code: 'L4-07', title: 'Key Isolation', csf: 'PR.DS-01', risk: 'HIGH', desc: 'Verifies dual-dataset key independence: cross-decryption attempts fail.' },
-    { code: 'L4-08', title: 'Data Deletion', csf: 'PR.DS-02', risk: 'MEDIUM', desc: 'Deletes dataset reference and purges associated encryption key from memory.' },
-    { code: 'L4-09', title: 'Cryptographic Erasure', csf: 'PR.DS-02', risk: 'HIGH', desc: 'NIST SP 800-88 Rev 1 sanitization: renders ciphertext permanently unrecoverable.' },
-    { code: 'L4-10', title: 'Post-Erasure Verification', csf: 'PR.DS-02', risk: 'MEDIUM', desc: 'Asserts post-erasure decryption returns CRYPTOGRAPHICALLY_UNRECOVERABLE.' }
+    { code: 'L4-01', title: 'Secure Data Encryption', attempted: 'Created dedicated synthetic telemetry record with AES-256-GCM encryption.', protection_what: 'Dataset encrypted with unique key in isolated memory registry.', desc: 'Encrypts telemetry record with dedicated AES-256-GCM data encryption key (DEK).' },
+    { code: 'L4-02', title: 'Decryption Verification', attempted: 'Verified authorized decryption roundtrip with active encryption key.', protection_what: 'Authenticated ciphertext decrypted cleanly and confirmed plaintext matches.', desc: 'Verifies ciphertext roundtrip authenticity and plaintext integrity with active key.' },
+    { code: 'L4-03', title: 'Tamper Detection', attempted: 'Mutated 1 byte in ciphertext to test authenticated decryption.', protection_what: 'AES-GCM authentication tag mismatch detected; decryption aborted.', desc: 'Mutates 1 byte in ciphertext; asserts cryptographic authentication tag mismatch.' },
+    { code: 'L4-04', title: 'Access Control', attempted: 'Attempted unauthorized dataset wipe without valid token.', protection_what: 'Sanitization gate rejected command due to missing access token.', desc: 'Negative test: attempts key zeroization without authorized credential; asserts 403.' },
+    { code: 'L4-05', title: 'Key Sanitization', attempted: 'Executed authorized NIST SP 800-88 cryptographic key wipe.', protection_what: 'Volatile key bytes zeroized in RAM buffer and metadata unlinked.', desc: 'Cryptographic erasure: overwrites volatile key bytes with zeros in RAM buffer.' },
+    { code: 'L4-06', title: 'Key Revocation', attempted: 'Attempted cryptographic operations using a revoked encryption key.', protection_what: 'Key registry enforced REVOKED status and blocked cryptographic access.', desc: 'Revokes key state in registry; prevents further cryptographic read/write operations.' },
+    { code: 'L4-07', title: 'Key Isolation', attempted: 'Attempted cross-dataset decryption using mismatched encryption key.', protection_what: 'Per-dataset key isolation enforced; cross-decryption raised authentication failure.', desc: 'Verifies dual-dataset key independence: cross-decryption attempts fail.' },
+    { code: 'L4-08', title: 'Data Deletion', attempted: 'Requested permanent deletion of telemetry record.', protection_what: 'Dataset entry unlinked and encryption key purged from memory.', desc: 'Deletes dataset reference and purges associated encryption key from memory.' },
+    { code: 'L4-09', title: 'Cryptographic Erasure', attempted: 'Triggered cryptographic erase workflow under NIST SP 800-88 Rev 1.', protection_what: 'Key reference destroyed; registry confirms ciphertext permanently unrecoverable.', desc: 'NIST SP 800-88 Rev 1 sanitization: renders ciphertext permanently unrecoverable.' },
+    { code: 'L4-10', title: 'Post-Erasure Verification', attempted: 'Attempted to decrypt data record after cryptographic erasure.', protection_what: 'Post-erasure verification confirmed ciphertext is cryptographically unrecoverable.', desc: 'Asserts post-erasure decryption returns CRYPTOGRAPHICALLY_UNRECOVERABLE.' }
   ];
 
   const fetchDatasets = async () => {
@@ -43,8 +46,8 @@ export default function Layer4Section({ onExecuteLayer4, isExecuting, onOpenConf
         const data = await res.json();
         setDatasets(data.datasets || []);
       }
-    } catch (e) {
-      console.warn('Could not fetch datasets:', e);
+    } catch {
+      // non-blocking
     }
   };
 
@@ -59,13 +62,10 @@ export default function Layer4Section({ onExecuteLayer4, isExecuting, onOpenConf
       const res = await fetch('/api/execute-test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          test_id: code,
-          mode: 'software'
-        })
+        body: JSON.stringify({ test_id: code, mode: 'software' })
       });
       const data = await res.json();
-      setResults((prev) => ({ ...prev, [code]: data }));
+      setResults(prev => ({ ...prev, [code]: data }));
       setLastResult(data);
       fetchDatasets();
     } catch (e) {
@@ -123,39 +123,21 @@ export default function Layer4Section({ onExecuteLayer4, isExecuting, onOpenConf
     }
   };
 
-  // Real summary counts
   const totalScenarios = scenarios.length;
   const completedCount = Object.keys(results).length;
   const passedCount = Object.values(results).filter(
-    (r) => r.hardened?.status === 'PASS' || r.verdict === 'PASS' || r.status === 'PASS'
+    r => r.hardened?.status === 'PASS' || r.verdict === 'PASS' || r.status === 'PASS'
   ).length;
   const failedCount = completedCount - passedCount;
 
-  const currentScenarioObj = scenarios.find((s) => s.code === selectedScenario) || scenarios[0];
-  const activeRes = results[selectedScenario] || lastResult;
-
-  const getStatusBadge = (scCode) => {
-    const res = results[scCode];
-    if (!res) {
-      return (
-        <span style={{ fontSize: '10px', fontWeight: 600, padding: '2px 7px', borderRadius: '4px', background: 'var(--bg-subtle)', color: 'var(--text-muted)' }}>
-          Pending
-        </span>
-      );
-    }
+  const getCardVerdict = (code) => {
+    const res = results[code];
+    if (!res) return { label: 'Not verified', badgeClass: 'pending' };
     const passed = res.hardened?.status === 'PASS' || res.verdict === 'PASS' || res.status === 'PASS';
-    return (
-      <span style={{
-        fontSize: '10px',
-        fontWeight: 700,
-        padding: '2px 7px',
-        borderRadius: '4px',
-        background: passed ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
-        color: passed ? 'var(--rc-color)' : 'var(--sev-critical)'
-      }}>
-        {passed ? 'Passed' : 'Failed'}
-      </span>
-    );
+    return {
+      label: passed ? 'Passed' : 'Failed',
+      badgeClass: passed ? 'pass' : 'fail'
+    };
   };
 
   return (
@@ -171,7 +153,7 @@ export default function Layer4Section({ onExecuteLayer4, isExecuting, onOpenConf
               </h2>
             </div>
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '4px 0 0 0', lineHeight: 1.4 }}>
-              Checks how protected test data and encryption keys are managed, revoked, and removed.
+              Checks whether protected test data and encryption keys are managed and removed correctly.
             </p>
           </div>
           <span className="csf-tag rs" style={{ fontSize: '10px', padding: '3px 8px' }}>
@@ -183,7 +165,7 @@ export default function Layer4Section({ onExecuteLayer4, isExecuting, onOpenConf
       {/* 2. Summary Bar */}
       <div className="unified-summary-bar">
         <div className="unified-summary-pill">
-          <span className="lbl">Total Scenarios</span>
+          <span className="lbl">Total Tests</span>
           <span className="val">{totalScenarios}</span>
         </div>
         <div className="unified-summary-pill">
@@ -191,11 +173,11 @@ export default function Layer4Section({ onExecuteLayer4, isExecuting, onOpenConf
           <span className="val" style={{ color: 'var(--rs-color)' }}>{completedCount}</span>
         </div>
         <div className="unified-summary-pill">
-          <span className="lbl">Passed Scenarios</span>
+          <span className="lbl">Passed Tests</span>
           <span className="val" style={{ color: 'var(--rc-color)' }}>{passedCount}</span>
         </div>
         <div className="unified-summary-pill">
-          <span className="lbl">Failed Scenarios</span>
+          <span className="lbl">Failed Tests</span>
           <span className="val" style={{ color: failedCount > 0 ? 'var(--sev-critical)' : 'var(--text-muted)' }}>{failedCount}</span>
         </div>
       </div>
@@ -229,10 +211,10 @@ export default function Layer4Section({ onExecuteLayer4, isExecuting, onOpenConf
         </div>
       </div>
 
-      {/* 4. Compact Synthetic Dataset Controls */}
+      {/* 4. Compact Dataset Generation & Encryption Controls Panel */}
       <div className="panel-card" style={{ padding: '14px 18px' }}>
         <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' }}>
-          Synthetic Dataset Generation & Key Management
+          Synthetic Dataset Generation & Encryption
         </div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
           <input
@@ -252,7 +234,7 @@ export default function Layer4Section({ onExecuteLayer4, isExecuting, onOpenConf
             }}
           />
           <button className="btn-primary" onClick={handleCreateDataset} style={{ fontSize: '11px', padding: '6px 12px' }}>
-            <Database size={12} /> Encrypt New Dataset (AES-256-GCM)
+            <Database size={12} /> Encrypt Dataset (AES-256-GCM)
           </button>
         </div>
 
@@ -318,132 +300,131 @@ export default function Layer4Section({ onExecuteLayer4, isExecuting, onOpenConf
         )}
       </div>
 
-      {/* 5. Scenarios Grid (Unified 4-column responsive) */}
+      {/* 5. Real-Time Waveform Viewer */}
+      <WaveformPlotlyChart
+        scenarioId={selectedScenario}
+        activeResult={results[selectedScenario] || lastResult}
+        height={240}
+      />
+
+      {/* 6. Unified Scenarios Grid */}
       <div className="panel-card" style={{ padding: '16px 20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
           <h3 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-            Data and Key Sanitization Scenarios (10 Scenarios)
+            Sanitization & Key Management (10 Tests)
           </h3>
           <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-            Click card or Run button to execute
+            NIST SP 800-88 Cryptographic Erase verification
           </span>
         </div>
 
         <div className="unified-scenario-grid">
           {scenarios.map((sc) => {
-            const isSelected = selectedScenario === sc.code;
+            const res = results[sc.code];
+            const verdict = getCardVerdict(sc.code);
+            const isExpanded = expandedId === sc.code;
+
             return (
               <div
                 key={sc.code}
-                className="unified-card"
-                onClick={() => setSelectedScenario(sc.code)}
-                style={{
-                  borderColor: isSelected ? 'var(--rs-color)' : undefined,
-                  background: isSelected ? 'rgba(239, 68, 68, 0.04)' : undefined,
-                  cursor: 'pointer'
-                }}
+                className={`unified-card ${isExpanded ? 'selected' : ''}`}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span className="unified-card-id">{sc.code}</span>
-                  {getStatusBadge(sc.code)}
+                  <span style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    padding: '2px 7px',
+                    borderRadius: '4px',
+                    background: verdict.badgeClass === 'pass'
+                      ? 'rgba(16, 185, 129, 0.12)'
+                      : verdict.badgeClass === 'fail'
+                      ? 'rgba(239, 68, 68, 0.12)'
+                      : 'var(--bg-subtle)',
+                    color: verdict.badgeClass === 'pass'
+                      ? 'var(--rc-color)'
+                      : verdict.badgeClass === 'fail'
+                      ? 'var(--sev-critical)'
+                      : 'var(--text-muted)'
+                  }}>
+                    {verdict.label}
+                  </span>
                 </div>
 
-                <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.3 }}>
-                  {sc.code} — {sc.title}
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.3 }}>
+                    {sc.title}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px', lineHeight: 1.35 }}>
+                    <strong style={{ color: 'var(--text-primary)' }}>Test:</strong> {sc.attempted}
+                  </div>
                 </div>
 
-                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.4, flex: 1 }}>
-                  {sc.desc}
+                <div style={{
+                  padding: '8px 10px',
+                  borderRadius: '6px',
+                  background: 'var(--bg-inset)',
+                  border: '1px solid var(--border-subtle)',
+                  fontSize: '11px',
+                  color: 'var(--text-secondary)',
+                  lineHeight: 1.35
+                }}>
+                  <div style={{ fontWeight: 700, color: 'var(--rs-color)', marginBottom: '2px' }}>
+                    What happened:
+                  </div>
+                  <div>
+                    {res ? (res.hardened?.details || sc.protection_what) : sc.protection_what}
+                  </div>
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px', borderTop: '1px solid var(--border-subtle)', paddingTop: '6px' }}>
-                  <span style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)' }}>{sc.csf}</span>
                   <button
                     className="btn-ghost"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRunScenario(sc.code);
-                    }}
+                    onClick={() => setExpandedId(isExpanded ? null : sc.code)}
+                    style={{ fontSize: '10px', padding: '3px 8px', height: '24px' }}
+                  >
+                    {isExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                    {isExpanded ? 'Hide' : 'View Details'}
+                  </button>
+
+                  <button
+                    className="btn-ghost"
+                    onClick={() => handleRunScenario(sc.code)}
                     disabled={isExecuting}
                     style={{ fontSize: '10px', padding: '3px 8px', height: '24px' }}
                   >
                     <Play size={10} /> Run
                   </button>
                 </div>
+
+                {isExpanded && (
+                  <div style={{
+                    marginTop: '8px',
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                    background: 'var(--bg-subtle)',
+                    border: '1px solid var(--border-subtle)',
+                    fontSize: '10px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px'
+                  }}>
+                    <div>
+                      <strong style={{ color: 'var(--text-primary)' }}>Observed Response:</strong> <span style={{ fontFamily: 'var(--font-mono)' }}>{res?.hardened?.observed || 'N/A'}</span>
+                    </div>
+                    <div>
+                      <strong style={{ color: 'var(--text-primary)' }}>Baseline Posture:</strong> {res?.baseline?.status || 'N/A'} ({res?.baseline?.observed || 'N/A'})
+                    </div>
+                    <div style={{ marginTop: '6px' }}>
+                      <WaveformPlotlyChart scenarioId={sc.code} activeResult={res} height={160} />
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
       </div>
-
-      {/* 6. Structured Results Area */}
-      {activeRes && (
-        <div className="panel-card" style={{ padding: '16px 20px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
-            <h4 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-              Scenario Result: {currentScenarioObj.code} — {currentScenarioObj.title}
-            </h4>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Verification Status:</span>
-              {getStatusBadge(selectedScenario)}
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
-            {/* Vulnerable Baseline */}
-            <div style={{
-              padding: '12px 14px',
-              borderRadius: '8px',
-              background: 'rgba(239, 68, 68, 0.05)',
-              border: '1px solid rgba(239, 68, 68, 0.2)'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--sev-critical)' }}>
-                  Target A (ESP8266 Baseline)
-                </span>
-                <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--sev-critical)' }}>
-                  {activeRes.baseline?.status || 'FAIL'}
-                </span>
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                <strong>Expected:</strong> Insecure key storage, pointer-only clearing, key leak
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                <strong>Observed:</strong> <span style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{activeRes.baseline?.observed || 'WEAKNESS_OBSERVED'}</span>
-              </div>
-              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                {activeRes.baseline?.details || 'Unprotected key references persist in memory without zeroization.'}
-              </div>
-            </div>
-
-            {/* Hardened Target */}
-            <div style={{
-              padding: '12px 14px',
-              borderRadius: '8px',
-              background: 'rgba(16, 185, 129, 0.05)',
-              border: '1px solid rgba(16, 185, 129, 0.2)'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--rc-color)' }}>
-                  Target B (ESP32 Hardened)
-                </span>
-                <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--rc-color)' }}>
-                  {activeRes.hardened?.status || 'PASS'}
-                </span>
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                <strong>Expected:</strong> NIST SP 800-88 CE zeroization & unauthorized wipe denial
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                <strong>Observed:</strong> <span style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{activeRes.hardened?.observed || 'DEFENSE_ENFORCED'}</span>
-              </div>
-              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                {activeRes.hardened?.details || 'Cryptographic sanitization enforced; key bytes destroyed in memory.'}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* 7. Multi-Format Evidence Export Toolbar */}
       <div className="panel-card" style={{

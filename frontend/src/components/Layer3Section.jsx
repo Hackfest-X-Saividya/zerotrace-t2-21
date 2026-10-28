@@ -1,51 +1,54 @@
 import React, { useState, useEffect } from 'react';
 import {
   Shield,
-  ShieldAlert,
   ShieldCheck,
+  ShieldAlert,
   Play,
-  Lock,
-  Unlock,
-  AlertOctagon,
-  Info,
+  RotateCcw,
+  AlertTriangle,
   Download,
   FileText,
   Activity,
   CheckCircle2,
-  AlertTriangle,
-  Cpu
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
+import WaveformPlotlyChart from './WaveformPlotlyChart';
 
 export default function Layer3Section({ onExecuteLayer3, isExecuting }) {
   const [status, setStatus] = useState(null);
   const [selectedScenario, setSelectedScenario] = useState('read_only_audit');
   const [results, setResults] = useState({});
   const [lastResult, setLastResult] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
 
   const scenarios = [
     {
       id: 'read_only_audit',
       code: 'L3-01',
       title: 'Read-Only Silicon Security Audit',
-      csf: 'PR.PS-01',
-      risk: 'LOW',
-      desc: 'Inspects hardware eFuse blocks, debug port lock status, and flash encryption registers without burning bits.'
+      attempted: 'Inspected hardware eFuse registers, boot ROM locks, and flash encryption state.',
+      protection_what: 'Read-only silicon verification affirmed hardware root-of-trust configuration without burning bits.',
+      capability: 'HARDWARE_AUDIT',
+      desc: 'Inspects eFuse blocks, JTAG locks, and flash encryption state.'
     },
     {
       id: 'policy_violation_sim',
       code: 'L3-02',
       title: 'Simulated JTAG Probe Attachment',
-      csf: 'PR.AA-01',
-      risk: 'HIGH',
-      desc: 'Simulates physical debugger attachment to hardware debug pins; verifies debug isolation policy and silent disconnect.'
+      attempted: 'Simulated unauthorized debugger attachment to physical hardware debug pins.',
+      protection_what: 'JTAG port lockdown policy simulation confirmed debug access denied and silent disconnect.',
+      capability: 'SOFTWARE_SIMULATION',
+      desc: 'Simulates physical debugger attachment to hardware debug pins.'
     },
     {
       id: 'unauthorized_access',
       code: 'L3-03',
       title: 'Unauthorized Silicon Operation Test',
-      csf: 'PR.AC-01',
-      risk: 'HIGH',
-      desc: 'Attempts administrative silicon reconfiguration without valid hardware access token; verifies access denial.'
+      attempted: 'Attempted administrative silicon reconfiguration without valid hardware access token.',
+      protection_what: 'Silicon access control gate rejected unauthorized command with access denial.',
+      capability: 'SOFTWARE_POLICY',
+      desc: 'Attempts administrative silicon reconfiguration without token.'
     }
   ];
 
@@ -53,8 +56,8 @@ export default function Layer3Section({ onExecuteLayer3, isExecuting }) {
     try {
       const res = await fetch('/api/layer3/status');
       if (res.ok) setStatus(await res.json());
-    } catch (e) {
-      console.warn('Could not fetch Layer 3 status:', e);
+    } catch {
+      // non-blocking
     }
   };
 
@@ -65,55 +68,34 @@ export default function Layer3Section({ onExecuteLayer3, isExecuting }) {
   const handleRun = async (scId) => {
     const sc = scId || selectedScenario;
     setSelectedScenario(sc);
-    if (typeof onExecuteLayer3 !== 'function') {
-      alert('Layer 3 execution handler not configured.');
-      return;
+    if (typeof onExecuteLayer3 !== 'function') return;
+    try {
+      const res = await onExecuteLayer3(sc);
+      if (res) {
+        setResults(prev => ({ ...prev, [sc]: res }));
+        setLastResult(res);
+      }
+      fetchStatus();
+    } catch (err) {
+      console.error('Layer 3 execution error:', err);
     }
-    const res = await onExecuteLayer3(sc);
-    if (res) {
-      setResults((prev) => ({ ...prev, [sc]: res }));
-      setLastResult(res);
-    }
-    fetchStatus();
   };
 
-  const handleExport = (format) => {
-    window.location.href = `/api/evidence/export?format=${format}`;
-  };
-
-  // Real summary counts
   const totalScenarios = scenarios.length;
   const completedCount = Object.keys(results).length;
   const passedCount = Object.values(results).filter(
-    (r) => r.hardened?.status === 'PASS' || r.status === 'PASS' || r.verdict === 'PASS' || r.defense_enforced
+    r => r.hardened?.status === 'PASS' || r.status === 'PASS' || r.verdict === 'PASS'
   ).length;
   const failedCount = completedCount - passedCount;
 
-  const currentScenarioObj = scenarios.find((s) => s.id === selectedScenario) || scenarios[0];
-  const activeRes = results[selectedScenario] || lastResult;
-
-  const getStatusBadge = (scId) => {
+  const getCardVerdict = (scId) => {
     const res = results[scId];
-    if (!res) {
-      return (
-        <span style={{ fontSize: '10px', fontWeight: 600, padding: '2px 7px', borderRadius: '4px', background: 'var(--bg-subtle)', color: 'var(--text-muted)' }}>
-          Pending
-        </span>
-      );
-    }
-    const passed = res.hardened?.status === 'PASS' || res.status === 'PASS' || res.verdict === 'PASS' || res.defense_enforced;
-    return (
-      <span style={{
-        fontSize: '10px',
-        fontWeight: 700,
-        padding: '2px 7px',
-        borderRadius: '4px',
-        background: passed ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
-        color: passed ? 'var(--rc-color)' : 'var(--sev-critical)'
-      }}>
-        {passed ? 'Passed' : 'Failed'}
-      </span>
-    );
+    if (!res) return { label: 'Not verified', badgeClass: 'pending' };
+    const passed = res.hardened?.status === 'PASS' || res.status === 'PASS' || res.verdict === 'PASS';
+    return {
+      label: passed ? 'Passed' : 'Failed',
+      badgeClass: passed ? 'pass' : 'fail'
+    };
   };
 
   return (
@@ -125,11 +107,11 @@ export default function Layer3Section({ onExecuteLayer3, isExecuting }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Shield size={18} color="var(--rc-color)" />
               <h2 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-                Layer 3 — Device Security Policies
+                Layer 3 — Device Security
               </h2>
             </div>
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '4px 0 0 0', lineHeight: 1.4 }}>
-              Reviews available device-level security policies and hardware protection checks.
+              Checks supported device security policies and protection features.
             </p>
           </div>
           <span className="csf-tag pr" style={{ fontSize: '10px', padding: '3px 8px' }}>
@@ -141,7 +123,7 @@ export default function Layer3Section({ onExecuteLayer3, isExecuting }) {
       {/* 2. Summary Bar */}
       <div className="unified-summary-bar">
         <div className="unified-summary-pill">
-          <span className="lbl">Total Scenarios</span>
+          <span className="lbl">Total Tests</span>
           <span className="val">{totalScenarios}</span>
         </div>
         <div className="unified-summary-pill">
@@ -149,211 +131,155 @@ export default function Layer3Section({ onExecuteLayer3, isExecuting }) {
           <span className="val" style={{ color: 'var(--rc-color)' }}>{completedCount}</span>
         </div>
         <div className="unified-summary-pill">
-          <span className="lbl">Passed Scenarios</span>
+          <span className="lbl">Passed Tests</span>
           <span className="val" style={{ color: 'var(--rc-color)' }}>{passedCount}</span>
         </div>
         <div className="unified-summary-pill">
-          <span className="lbl">Failed Scenarios</span>
+          <span className="lbl">Failed Tests</span>
           <span className="val" style={{ color: failedCount > 0 ? 'var(--sev-critical)' : 'var(--text-muted)' }}>{failedCount}</span>
         </div>
       </div>
 
-      {/* 3. Compact 3-Stage Flow */}
-      <div className="panel-card" style={{ padding: '14px 18px' }}>
-        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' }}>
-          Silicon Policy Verification Flow
-        </div>
-        <div className="unified-pipeline-bar">
-          <div className="unified-pipeline-step">
-            <span className="num">1</span>
-            <span className="title">Policy selected</span>
-          </div>
-          <div className="unified-pipeline-step">
-            <span className="num">2</span>
-            <span className="title">Security condition checked</span>
-          </div>
-          <div className="unified-pipeline-step">
-            <span className="num">3</span>
-            <span className="title">Policy result recorded</span>
-          </div>
-        </div>
-      </div>
+      {/* 3. Real-Time Waveform Viewer */}
+      <WaveformPlotlyChart
+        scenarioId={selectedScenario}
+        activeResult={results[selectedScenario] || lastResult}
+        height={240}
+      />
 
-      {/* 4. Side-by-Side Silicon Posture Comparison */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
-        <div style={{
-          background: 'rgba(239, 68, 68, 0.04)',
-          border: '1px solid rgba(239, 68, 68, 0.2)',
-          padding: '12px 14px',
-          borderRadius: '8px'
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-            <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--sev-critical)' }}>
-              Target A: ESP8266 (Baseline)
-            </span>
-            <span style={{ fontSize: '9px', fontWeight: 800, color: 'var(--sev-critical)', padding: '2px 6px', borderRadius: '4px', background: 'rgba(239, 68, 68, 0.12)' }}>
-              UNPROTECTED
-            </span>
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-            <div>• <strong>eFuse Controller:</strong> Absent in silicon architecture</div>
-            <div>• <strong>Hardware Secure Boot:</strong> No silicon ROM signature check</div>
-            <div>• <strong>Flash Encryption:</strong> Not supported (plain-text flash)</div>
-            <div>• <strong>JTAG Port Lockdown:</strong> Not supported (pins always open)</div>
-          </div>
-        </div>
-
-        <div style={{
-          background: 'rgba(16, 185, 129, 0.04)',
-          border: '1px solid rgba(16, 185, 129, 0.2)',
-          padding: '12px 14px',
-          borderRadius: '8px'
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-            <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--rc-color)' }}>
-              Target B: ESP32 (Hardened)
-            </span>
-            <span style={{ fontSize: '9px', fontWeight: 800, color: 'var(--rc-color)', padding: '2px 6px', borderRadius: '4px', background: 'rgba(16, 185, 129, 0.12)' }}>
-              HARDENED
-            </span>
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-            <div>• <strong>eFuse Controller:</strong> Present (Blocks 0..3 write-protected)</div>
-            <div>• <strong>Secure Boot v2:</strong> RSA-3072 / ECDSA ROM signature verification</div>
-            <div>• <strong>Flash Encryption:</strong> Hardware AES-256 transparent engine</div>
-            <div>• <strong>JTAG Port Lockdown:</strong> Hardened policy simulation (LOCKED)</div>
-          </div>
-        </div>
-      </div>
-
-      {/* 5. Scenarios Grid (Unified 3-column / responsive) */}
+      {/* 4. Unified Scenarios Grid */}
       <div className="panel-card" style={{ padding: '16px 20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
           <h3 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-            Device Security Policies (3 Scenarios)
+            Device Security Policies (3 Tests)
           </h3>
           <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-            Click card or Run button to execute
+            Physical hardware audit vs software policy checks
           </span>
         </div>
 
         <div className="unified-scenario-grid">
           {scenarios.map((sc) => {
-            const isSelected = selectedScenario === sc.id;
+            const res = results[sc.id];
+            const verdict = getCardVerdict(sc.id);
+            const isExpanded = expandedId === sc.id;
+
             return (
               <div
                 key={sc.id}
-                className="unified-card"
-                onClick={() => setSelectedScenario(sc.id)}
-                style={{
-                  borderColor: isSelected ? 'var(--rc-color)' : undefined,
-                  background: isSelected ? 'rgba(16, 185, 129, 0.04)' : undefined,
-                  cursor: 'pointer'
-                }}
+                className={`unified-card ${isExpanded ? 'selected' : ''}`}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span className="unified-card-id">{sc.code}</span>
-                  {getStatusBadge(sc.id)}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span className="unified-card-id">{sc.code}</span>
+                    <span style={{
+                      fontSize: '9px',
+                      fontWeight: 700,
+                      padding: '1px 5px',
+                      borderRadius: '4px',
+                      background: sc.capability === 'HARDWARE_AUDIT' ? 'rgba(5, 150, 105, 0.1)' : 'var(--bg-subtle)',
+                      color: sc.capability === 'HARDWARE_AUDIT' ? 'var(--rc-color)' : 'var(--text-muted)'
+                    }}>
+                      {sc.capability === 'HARDWARE_AUDIT' ? 'Hardware Audit' : 'Software Sim'}
+                    </span>
+                  </div>
+
+                  <span style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    padding: '2px 7px',
+                    borderRadius: '4px',
+                    background: verdict.badgeClass === 'pass'
+                      ? 'rgba(16, 185, 129, 0.12)'
+                      : verdict.badgeClass === 'fail'
+                      ? 'rgba(239, 68, 68, 0.12)'
+                      : 'var(--bg-subtle)',
+                    color: verdict.badgeClass === 'pass'
+                      ? 'var(--rc-color)'
+                      : verdict.badgeClass === 'fail'
+                      ? 'var(--sev-critical)'
+                      : 'var(--text-muted)'
+                  }}>
+                    {verdict.label}
+                  </span>
                 </div>
 
-                <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.3 }}>
-                  {sc.code} — {sc.title}
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.3 }}>
+                    {sc.title}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px', lineHeight: 1.35 }}>
+                    <strong style={{ color: 'var(--text-primary)' }}>Test:</strong> {sc.attempted}
+                  </div>
                 </div>
 
-                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.4, flex: 1 }}>
-                  {sc.desc}
+                <div style={{
+                  padding: '8px 10px',
+                  borderRadius: '6px',
+                  background: 'var(--bg-inset)',
+                  border: '1px solid var(--border-subtle)',
+                  fontSize: '11px',
+                  color: 'var(--text-secondary)',
+                  lineHeight: 1.35
+                }}>
+                  <div style={{ fontWeight: 700, color: 'var(--rc-color)', marginBottom: '2px' }}>
+                    Protection Result:
+                  </div>
+                  <div>
+                    {res ? (res.hardened?.details || sc.protection_what) : sc.protection_what}
+                  </div>
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px', borderTop: '1px solid var(--border-subtle)', paddingTop: '6px' }}>
-                  <span style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text-muted)' }}>{sc.csf}</span>
                   <button
                     className="btn-ghost"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRun(sc.id);
-                    }}
+                    onClick={() => setExpandedId(isExpanded ? null : sc.id)}
+                    style={{ fontSize: '10px', padding: '3px 8px', height: '24px' }}
+                  >
+                    {isExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                    {isExpanded ? 'Hide' : 'View Details'}
+                  </button>
+
+                  <button
+                    className="btn-ghost"
+                    onClick={() => handleRun(sc.id)}
                     disabled={isExecuting}
                     style={{ fontSize: '10px', padding: '3px 8px', height: '24px' }}
                   >
                     <Play size={10} /> Run
                   </button>
                 </div>
+
+                {isExpanded && (
+                  <div style={{
+                    marginTop: '8px',
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                    background: 'var(--bg-subtle)',
+                    border: '1px solid var(--border-subtle)',
+                    fontSize: '10px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px'
+                  }}>
+                    <div>
+                      <strong style={{ color: 'var(--text-primary)' }}>Observed Response:</strong> <span style={{ fontFamily: 'var(--font-mono)' }}>{res?.hardened?.observed || 'N/A'}</span>
+                    </div>
+                    <div>
+                      <strong style={{ color: 'var(--text-primary)' }}>Baseline Posture:</strong> {res?.baseline?.status || 'N/A'} ({res?.baseline?.observed || 'N/A'})
+                    </div>
+                    <div style={{ marginTop: '6px' }}>
+                      <WaveformPlotlyChart scenarioId={sc.id} activeResult={res} height={160} />
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
       </div>
 
-      {/* 6. Structured Results Area */}
-      {activeRes && (
-        <div className="panel-card" style={{ padding: '16px 20px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
-            <h4 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-              Audit Finding: {currentScenarioObj.code} — {currentScenarioObj.title}
-            </h4>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Verification Status:</span>
-              {getStatusBadge(selectedScenario)}
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
-            {/* Vulnerable Baseline */}
-            <div style={{
-              padding: '12px 14px',
-              borderRadius: '8px',
-              background: 'rgba(239, 68, 68, 0.05)',
-              border: '1px solid rgba(239, 68, 68, 0.2)'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--sev-critical)' }}>
-                  Target A (ESP8266 Baseline)
-                </span>
-                <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--sev-critical)' }}>
-                  {activeRes.baseline?.status || 'FAIL'}
-                </span>
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                <strong>Expected:</strong> Unrestricted physical debug & lack of silicon encryption
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                <strong>Observed:</strong> <span style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{activeRes.baseline?.observed || 'WEAKNESS_OBSERVED'}</span>
-              </div>
-              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                {activeRes.baseline?.details || 'JTAG interface active without hardware lockout pins.'}
-              </div>
-            </div>
-
-            {/* Hardened Target */}
-            <div style={{
-              padding: '12px 14px',
-              borderRadius: '8px',
-              background: 'rgba(16, 185, 129, 0.05)',
-              border: '1px solid rgba(16, 185, 129, 0.2)'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--rc-color)' }}>
-                  Target B (ESP32 Hardened)
-                </span>
-                <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--rc-color)' }}>
-                  {activeRes.hardened?.status || 'PASS'}
-                </span>
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                <strong>Expected:</strong> Silicon lockdown enforced; debug access denied
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                <strong>Observed:</strong> <span style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{activeRes.hardened?.observed || 'DEFENSE_ENFORCED'}</span>
-              </div>
-              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                {activeRes.hardened?.details || 'Hardware eFuse audit confirmed JTAG debug port lockdown.'}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 7. Multi-Format Evidence Export Toolbar */}
+      {/* 5. Multi-Format Evidence Export Toolbar */}
       <div className="panel-card" style={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -372,13 +298,13 @@ export default function Layer3Section({ onExecuteLayer3, isExecuting }) {
         </div>
 
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <button className="btn-ghost" onClick={() => handleExport('csv')} style={{ fontSize: '11px', padding: '5px 10px' }}>
+          <button className="btn-ghost" onClick={() => window.location.href = '/api/evidence/export?format=csv'} style={{ fontSize: '11px', padding: '5px 10px' }}>
             <Download size={12} /> Export CSV
           </button>
-          <button className="btn-ghost" onClick={() => handleExport('json')} style={{ fontSize: '11px', padding: '5px 10px' }}>
+          <button className="btn-ghost" onClick={() => window.location.href = '/api/evidence/export?format=json'} style={{ fontSize: '11px', padding: '5px 10px' }}>
             <FileText size={12} /> Export JSON
           </button>
-          <button className="btn-ghost" onClick={() => handleExport('pdf')} style={{ fontSize: '11px', padding: '5px 10px' }}>
+          <button className="btn-ghost" onClick={() => window.location.href = '/api/evidence/export?format=pdf'} style={{ fontSize: '11px', padding: '5px 10px' }}>
             <FileText size={12} /> Export PDF Report
           </button>
         </div>

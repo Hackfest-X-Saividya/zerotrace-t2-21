@@ -189,12 +189,40 @@ class DeviceService:
         if not h["connected"] or not h.get("verified"):
             return False, "ACCESS DENIED — ESP32 hardened device not connected or not verified"
 
+        # Supported capability alias mappings (Layers 1, 2, 4)
+        alias_map = {
+            "L2-02": "L2-SKIP-SIM",
+            "INSTRUCTION_SKIP_SIMULATED": "L2-SKIP-SIM",
+            "L2-01": "L2-UNROLL",
+            "NORMAL": "L2-UNROLL",
+            "L2-03": "L2-AUTH",
+            "CHECK_STATE_CORRUPTED": "L2-AUTH",
+            "L1-APPROVED": "L1-01",
+            "L1-MODIFIED": "L1-02",
+            "L1-TAG-CORRUPT": "L1-03",
+            "L1-REPLAY": "L1-04",
+            "L1-ROLLBACK": "L1-05",
+            "L4-CREATE": "L4-01",
+            "L4-VERIFY-PRE": "L4-02",
+            "L4-TAMPER": "L4-03",
+            "L4-UNAUTH": "L4-04",
+            "L4-KEY-ZEROIZE": "L4-05"
+        }
+        resolved_id = alias_map.get(scenario_id, scenario_id)
+
+        # Genuine hardware firmware capabilities implemented in ESP8266/ESP32 sketch
+        hw_firmware_implemented = {
+            "L1-01", "L1-02", "L1-03", "L1-04", "L1-05",
+            "L4-01", "L4-02", "L4-03", "L4-04", "L4-05",
+            "L2-SKIP-SIM", "L2-UNROLL", "L2-AUTH"
+        }
+
         b_caps = b.get("capabilities", [])
         h_caps = h.get("capabilities", [])
 
-        if b_caps and scenario_id not in b_caps:
+        if b_caps and resolved_id not in b_caps and scenario_id not in b_caps:
             return False, f"ACCESS DENIED — Scenario {scenario_id} unsupported by ESP8266 baseline firmware."
-        if h_caps and scenario_id not in h_caps:
+        if h_caps and resolved_id not in h_caps and scenario_id not in h_caps:
             return False, f"ACCESS DENIED — Scenario {scenario_id} unsupported by ESP32 hardened firmware."
 
         return True, "Scenario supported on both boards."
@@ -726,7 +754,16 @@ class DeviceService:
             raise RuntimeError(supp_err)
 
         req_id = request_id or str(uuid.uuid4())
-        cmd_payload = json.dumps({"cmd": "run_test", "id": test_id, "req_id": req_id, "seq": seq}) + "\n"
+        alias_map = {
+            "L2-02": "L2-SKIP-SIM",
+            "INSTRUCTION_SKIP_SIMULATED": "L2-SKIP-SIM",
+            "L2-01": "L2-UNROLL",
+            "NORMAL": "L2-UNROLL",
+            "L2-03": "L2-AUTH",
+            "CHECK_STATE_CORRUPTED": "L2-AUTH"
+        }
+        cmd_id = alias_map.get(test_id, test_id)
+        cmd_payload = json.dumps({"cmd": "run_test", "id": cmd_id, "req_id": req_id, "seq": seq}) + "\n"
 
         b_dev = self.device_states["baseline"]
         h_dev = self.device_states["hardened"]

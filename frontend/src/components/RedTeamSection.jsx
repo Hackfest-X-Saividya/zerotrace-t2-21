@@ -1,29 +1,164 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Radio, 
   Play, 
   Square,
   RotateCcw,
   Download,
   Key, 
-  ShieldAlert, 
-  Zap, 
-  Lock, 
-  Unlock, 
   CheckCircle2, 
   AlertTriangle,
-  Clock,
-  Layers,
-  HelpCircle,
-  FileCheck,
-  Cpu,
-  Shield,
-  ArrowRight,
-  FileText,
   ChevronDown,
-  Activity
+  ChevronUp,
+  Activity,
+  Layers,
+  Search,
+  RefreshCw,
+  FileText
 } from 'lucide-react';
-import AttackDefenceEventTrace from './AttackDefenceEventTrace';
+import WaveformPlotlyChart from './WaveformPlotlyChart';
+
+const UNIFIED_SCENARIO_META = {
+  'L1-01': {
+    title: 'Firmware Authenticity',
+    attempted: 'Dispatched genuine signed firmware to test execution acceptance.',
+    protection_what: 'Cryptographic HMAC-SHA256 signature verified and version monotonic counter updated.',
+    plain_pass: 'Allowed',
+    plain_fail: 'Failed'
+  },
+  'L1-02': {
+    title: 'Payload Tampering',
+    attempted: 'Modified 16 bytes of firmware binary in transit to test tamper detection.',
+    protection_what: 'Integrity check detected payload modification; flash write aborted.',
+    plain_pass: 'Blocked',
+    plain_fail: 'Allowed'
+  },
+  'L1-03': {
+    title: 'Authentication Check',
+    attempted: 'Submitted firmware package with corrupted authentication tag.',
+    protection_what: 'Cryptographic tag validator detected corrupted signature and dropped package.',
+    plain_pass: 'Blocked',
+    plain_fail: 'Allowed'
+  },
+  'L1-04': {
+    title: 'Replay Protection',
+    attempted: 'Re-transmitted a previously executed valid firmware package identifier.',
+    protection_what: 'Replay cache identified duplicate request ID and rejected update.',
+    plain_pass: 'Blocked',
+    plain_fail: 'Allowed'
+  },
+  'L1-05': {
+    title: 'Downgrade Protection',
+    attempted: 'Attempted to flash older firmware version v0 over active version v2.',
+    protection_what: 'Monotonic anti-rollback policy detected version rollback and halted flash commit.',
+    plain_pass: 'Blocked',
+    plain_fail: 'Allowed'
+  },
+  'L1-06': {
+    title: 'Invalid Metadata',
+    attempted: 'Transmitted firmware manifest with malformed header fields.',
+    protection_what: 'Manifest schema validator rejected invalid metadata structure.',
+    plain_pass: 'Blocked',
+    plain_fail: 'Allowed'
+  },
+  'L1-07': {
+    title: 'Version Policy',
+    attempted: 'Submitted out-of-range version candidate to test boundary policy enforcement.',
+    protection_what: 'Version range supervisor rejected unsupported version candidate.',
+    plain_pass: 'Blocked',
+    plain_fail: 'Allowed'
+  },
+  'L1-08': {
+    title: 'Integrity Check',
+    attempted: 'Submitted firmware payload with mismatched declared SHA-256 hash.',
+    protection_what: 'Digest integrity check failed; corrupted package quarantined.',
+    plain_pass: 'Blocked',
+    plain_fail: 'Allowed'
+  },
+  'L1-09': {
+    title: 'Update Authorization',
+    attempted: 'Sent OTA update command without valid authorization credentials.',
+    protection_what: 'Identity validator rejected unauthenticated requestor ID.',
+    plain_pass: 'Blocked',
+    plain_fail: 'Allowed'
+  },
+  'L1-10': {
+    title: 'Interrupted Update',
+    attempted: 'Truncated transfer stream mid-payload to simulate connection drop.',
+    protection_what: 'Buffer length validator detected truncated payload size mismatch.',
+    plain_pass: 'Blocked',
+    plain_fail: 'Allowed'
+  },
+  'L4-01': {
+    title: 'Secure Data Encryption',
+    attempted: 'Created dedicated synthetic telemetry record with AES-256-GCM encryption.',
+    protection_what: 'Dataset encrypted with unique key in isolated memory registry.',
+    plain_pass: 'Passed',
+    plain_fail: 'Failed'
+  },
+  'L4-02': {
+    title: 'Decryption Verification',
+    attempted: 'Verified authorized decryption roundtrip with active encryption key.',
+    protection_what: 'Authenticated ciphertext decrypted cleanly and confirmed plaintext matches.',
+    plain_pass: 'Allowed',
+    plain_fail: 'Failed'
+  },
+  'L4-03': {
+    title: 'Tamper Detection',
+    attempted: 'Altered 1 byte in ciphertext to test authenticated decryption.',
+    protection_what: 'AES-GCM authentication tag mismatch detected; decryption aborted.',
+    plain_pass: 'Blocked',
+    plain_fail: 'Allowed'
+  },
+  'L4-04': {
+    title: 'Access Control',
+    attempted: 'Attempted unauthorized dataset wipe without valid token.',
+    protection_what: 'Sanitization gate rejected command due to missing access token.',
+    plain_pass: 'Blocked',
+    plain_fail: 'Allowed'
+  },
+  'L4-05': {
+    title: 'Key Sanitization',
+    attempted: 'Executed authorized NIST SP 800-88 cryptographic key wipe.',
+    protection_what: 'Volatile key bytes zeroized in RAM buffer and metadata unlinked.',
+    plain_pass: 'Passed',
+    plain_fail: 'Failed'
+  },
+  'L4-06': {
+    title: 'Key Revocation',
+    attempted: 'Attempted cryptographic operations using a revoked encryption key.',
+    protection_what: 'Key registry enforced REVOKED status and blocked cryptographic access.',
+    plain_pass: 'Blocked',
+    plain_fail: 'Allowed'
+  },
+  'L4-07': {
+    title: 'Key Isolation',
+    attempted: 'Attempted cross-dataset decryption using mismatched encryption key.',
+    protection_what: 'Per-dataset key isolation enforced; cross-decryption raised authentication failure.',
+    plain_pass: 'Blocked',
+    plain_fail: 'Allowed'
+  },
+  'L4-08': {
+    title: 'Data Deletion',
+    attempted: 'Requested permanent deletion of telemetry record.',
+    protection_what: 'Dataset entry unlinked and encryption key purged from memory.',
+    plain_pass: 'Passed',
+    plain_fail: 'Failed'
+  },
+  'L4-09': {
+    title: 'Cryptographic Erasure',
+    attempted: 'Triggered cryptographic erase workflow under NIST SP 800-88 Rev 1.',
+    protection_what: 'Key reference destroyed; registry confirms ciphertext permanently unrecoverable.',
+    plain_pass: 'Passed',
+    plain_fail: 'Failed'
+  },
+  'L4-10': {
+    title: 'Post-Erasure Verification',
+    attempted: 'Attempted to decrypt data record after cryptographic erasure.',
+    protection_what: 'Post-erasure verification confirmed ciphertext is cryptographically unrecoverable.',
+    plain_pass: 'Blocked',
+    plain_fail: 'Allowed'
+  }
+};
 
 export default function RedTeamSection({
   catalog = [],
@@ -35,52 +170,21 @@ export default function RedTeamSection({
 }) {
   const [selectedLayer, setSelectedLayer] = useState('All');
   const [execMode, setExecMode] = useState(() => {
-    // Persist exec mode across page reloads
     return localStorage.getItem('zt_exec_mode') || 'simulation';
   });
-  const [showCredForm, setShowCredForm] = useState(false);
-  const [credLifetime, setCredLifetime] = useState(600);
-  const [credScope, setCredScope] = useState(['test:run', 'ota:stage', 'fault:inject', 'debug:audit']);
-  const [showExportMenu, setShowExportMenu] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
+  const [scanNotification, setScanNotification] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
 
-  // Hardware Readiness State
-  const [readiness, setReadiness] = useState({
-    ready: false,
-    state: 'DISCONNECTED',
-    message: 'Checking hardware readiness...',
-    last_handshake_time: null,
-    baseline: { connected: false, verified: false },
-    hardened: { connected: false, verified: false }
-  });
-
-  // Campaign State
   const [campaign, setCampaign] = useState({
     is_running: false,
     current_index: 0,
-    total_steps: 10,
+    total_steps: 20,
     current_scenario: null,
     stage: 'IDLE',
     status: 'IDLE',
-    results: [],
-    summary: null
+    results: []
   });
-
-  const [expandedScenarioId, setExpandedScenarioId] = useState(null);
-  const [autoFallbackMsg, setAutoFallbackMsg] = useState(null);
-  const [scanNotification, setScanNotification] = useState(null);
-
-  const fetchReadiness = async () => {
-    try {
-      const res = await fetch('/api/devices/readiness');
-      if (res.ok) {
-        const data = await res.json();
-        setReadiness(data);
-      }
-    } catch (e) {
-      console.warn("Could not fetch readiness:", e);
-    }
-  };
 
   const fetchCampaignStatus = async () => {
     try {
@@ -89,660 +193,479 @@ export default function RedTeamSection({
         const data = await res.json();
         setCampaign(data);
       }
-    } catch (e) {
-      console.warn("Could not fetch campaign status:", e);
+    } catch {
+      // non-blocking
     }
   };
 
   useEffect(() => {
-    fetchReadiness();
     fetchCampaignStatus();
-    const interval = setInterval(() => {
-      fetchReadiness();
-      fetchCampaignStatus();
-    }, 1500);
+    const interval = setInterval(fetchCampaignStatus, 1500);
     return () => clearInterval(interval);
   }, []);
+
+  const handleModeChange = (mode) => {
+    setExecMode(mode);
+    localStorage.setItem('zt_exec_mode', mode);
+  };
 
   const handleScanIdentify = async () => {
     try {
       setIsScanning(true);
-      setScanNotification({ type: 'info', text: 'HARDWARE DETECTION REQUESTED' });
-      const res = await fetch('/api/devices/discover');
-      if (res.ok) {
-        await fetchReadiness();
-      }
-      setScanNotification({ type: 'success', text: 'SCAN COMPLETE' });
-      setTimeout(() => setScanNotification(null), 5000);
-    } catch (e) {
-      setScanNotification({ type: 'success', text: 'SCAN COMPLETE' });
-      setTimeout(() => setScanNotification(null), 5000);
+      setScanNotification({ type: 'info', text: 'Hardware scan initiated...' });
+      await fetch('/api/devices/discover');
+      setScanNotification({ type: 'success', text: 'Scan completed.' });
+      setTimeout(() => setScanNotification(null), 4000);
+    } catch {
+      setScanNotification({ type: 'success', text: 'Scan completed.' });
+      setTimeout(() => setScanNotification(null), 4000);
     } finally {
       setIsScanning(false);
     }
   };
 
-  // Persist exec mode to localStorage on every change
-  const setExecModeAndPersist = (mode) => {
-    localStorage.setItem('zt_exec_mode', mode);
-    setExecMode(mode);
-  };
-
   const handleStartCampaign = async () => {
-    let modeToUse = 'demo';
-
-    if (execMode === 'hardware') {
-      if (readiness.ready) {
-        modeToUse = 'hardware';
-      } else {
-        // Hardware selected but physical hardware not verified:
-        // Keep Hardware Mode selected in UI, run non-hardware demonstration via demo adapter
-        modeToUse = 'hardware_demo';
-        setAutoFallbackMsg('DEMO EXECUTION — NO PHYSICAL HARDWARE VERIFIED');
-        setTimeout(() => setAutoFallbackMsg(null), 8000);
-      }
-    } else {
-      modeToUse = 'demo';
-    }
-
     try {
-      const res = await fetch('/api/campaign/start', {
+      await fetch('/api/campaign/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: modeToUse })
+        body: JSON.stringify({ mode: execMode })
       });
-      if (res.ok) {
-        const data = await res.json();
-        setCampaign(data.campaign);
-      } else {
-        const err = await res.json();
-        alert(err.detail || "Could not start campaign.");
-      }
+      fetchCampaignStatus();
     } catch (e) {
-      alert(`Could not start campaign: ${e.message}`);
+      alert(`Error starting campaign: ${e.message}`);
     }
   };
 
   const handleStopCampaign = async () => {
     try {
-      const res = await fetch('/api/campaign/stop', { method: 'POST' });
-      if (res.ok) {
-        const data = await res.json();
-        setCampaign(data.campaign);
-      }
+      await fetch('/api/campaign/stop', { method: 'POST' });
+      fetchCampaignStatus();
     } catch (e) {
-      alert(`Could not stop campaign: ${e.message}`);
+      alert(`Error stopping campaign: ${e.message}`);
     }
   };
 
   const handleResetCampaign = async () => {
     try {
-      const res = await fetch('/api/campaign/reset', { method: 'POST' });
-      if (res.ok) {
-        const data = await res.json();
-        setCampaign(data.campaign);
-      }
+      await fetch('/api/campaign/reset', { method: 'POST' });
+      fetchCampaignStatus();
     } catch (e) {
-      alert(`Reset error: ${e.message}`);
+      alert(`Error resetting campaign: ${e.message}`);
     }
   };
 
-  const handleExport = (format) => {
-    setShowExportMenu(false);
-    window.location.href = `/api/evidence/export?format=${format}`;
+  // Build scenario list: prioritize all 20 Layer 1 and Layer 4 scenarios
+  const fullScenarios = catalog.length > 0 ? catalog : Object.keys(UNIFIED_SCENARIO_META).map(id => ({
+    id,
+    name: UNIFIED_SCENARIO_META[id].title,
+    layer: id.startsWith('L1') ? 'Layer 1' : 'Layer 4'
+  }));
+
+  const filteredScenarios = fullScenarios.filter(sc => {
+    if (selectedLayer === 'All') return true;
+    if (selectedLayer === 'Layer 1') return sc.id?.startsWith('L1');
+    if (selectedLayer === 'Layer 4') return sc.id?.startsWith('L4');
+    return true;
+  });
+
+  // Calculate real summary counts
+  const resultsMap = {};
+  (campaign.results || []).forEach(r => {
+    if (r.test_id) resultsMap[r.test_id] = r;
+  });
+
+  const totalTests = fullScenarios.length;
+  const completedResults = Object.values(resultsMap);
+  const passedCount = completedResults.filter(r => r.status_hardened === 'PASS' || r.status === 'PASS').length;
+  const failedCount = completedResults.filter(r => r.status_hardened === 'FAIL' || r.status === 'FAIL').length;
+  const notVerifiedCount = Math.max(0, totalTests - completedResults.length);
+
+  const getVerdictDetails = (scId) => {
+    const res = resultsMap[scId];
+    const meta = UNIFIED_SCENARIO_META[scId] || {};
+    if (!res) {
+      return { label: 'Not verified', badgeClass: 'pending' };
+    }
+    const isHardenedPass = res.status_hardened === 'PASS' || res.status === 'PASS';
+    const obs = (res.observed_hardened || '').toUpperCase();
+
+    if (obs.includes('DISCONNECTED') || obs.includes('TIMEOUT') || res.status_hardened === 'INCONCLUSIVE') {
+      return { label: 'Not verified', badgeClass: 'pending' };
+    }
+    if (isHardenedPass) {
+      return { label: meta.plain_pass || 'Passed', badgeClass: 'pass' };
+    }
+    return { label: meta.plain_fail || 'Failed', badgeClass: 'fail' };
   };
 
-  const handleWaveformExport = (format) => {
-    setShowExportMenu(false);
-    window.location.href = `/api/evidence/waveforms?format=${format}`;
+  const getStageClass = (stageIndex) => {
+    const curIdx = campaign.current_index || 0;
+    if (campaign.is_running) {
+      const activeStage = (curIdx % 5) + 1;
+      if (stageIndex < activeStage) return 'success';
+      if (stageIndex === activeStage) return 'active';
+      return '';
+    }
+    if (campaign.status === 'COMPLETED') return 'success';
+    return '';
   };
 
-  // 20 controlled scenarios: 10 for Layer 1 and 10 for Layer 4
-  const layer1Scenarios = catalog.filter(s => /^L1-\d+$/.test(s.id)).slice(0, 10);
-  const layer4Scenarios = catalog.filter(s => /^L4-\d+$/.test(s.id)).slice(0, 10);
-  const otherScenarios = catalog.filter(s => !s.id.startsWith('L1-') && !s.id.startsWith('L4-'));
-
-  const getFilteredCatalog = () => {
-    if (selectedLayer === 'Layer 1') return layer1Scenarios;
-    if (selectedLayer === 'Layer 4') return layer4Scenarios;
-    if (selectedLayer === 'Layers 2 & 3') return otherScenarios;
-    return [...layer1Scenarios, ...layer4Scenarios, ...otherScenarios];
-  };
-
-  const displayedCatalog = getFilteredCatalog();
-
-  // 5 compact stages aligned with Section 3 requirements
-  const stages = [
-    { id: 'REQUEST_SENT', label: '1. Test started', sub: 'MacBook Orchestrator' },
-    { id: 'TARGET_RESPONSE', label: '2. Target checked', sub: 'Baseline vs Hardened' },
-    { id: 'BLUE_VALIDATION', label: '3. Defence evaluated', sub: 'Cryptographic Policy' },
-    { id: 'VERDICT', label: '4. Result verified', sub: 'Policy Enforcement' },
-    { id: 'EVIDENCE_SAVED', label: '5. Evidence saved', sub: 'Local Audit Log' },
-  ];
-
-  const currentStageIndex = stages.findIndex(s => s.id === campaign.stage);
-
-  // Compute live summary statistics from actual campaign results
-  const completedCount = campaign.results.filter(r => r.evidence_level !== 'NOT_EXECUTED').length;
-  const passedCount = campaign.results.filter(r => r.status_hardened === 'PASS').length;
-  const failedCount = campaign.results.filter(r => r.status_hardened === 'FAIL').length;
+  const progressPercent = campaign.total_steps > 0
+    ? Math.min(100, Math.round(((campaign.current_index || 0) / campaign.total_steps) * 100))
+    : 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      {/* 0. Primary Top Bar: Execution Mode + Scan Button + Inline Status */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border-subtle)',
-        borderRadius: '12px',
-        padding: '10px 16px',
-        flexWrap: 'wrap',
-        gap: '12px',
-        boxShadow: 'var(--shadow-sm)'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '0.4px' }}>
-            EXECUTION MODE:
-          </span>
-          <div style={{
-            display: 'inline-flex',
-            background: 'var(--bg-inset)',
-            padding: '3px',
-            borderRadius: '8px',
-            border: '1px solid var(--border-subtle)',
-            opacity: campaign.is_running ? 0.6 : 1
-          }}>
+      {/* 1. Main Action Area: Campaign Controller Card */}
+      <div className="panel-card" style={{ padding: '16px 20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Activity size={18} color="var(--rs-color)" />
+              <h2 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+                Red Team Security Campaign
+              </h2>
+            </div>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '4px 0 0 0', lineHeight: 1.4 }}>
+              Executes automated cyber-physical tests against connected targets to evaluate defensive resilience.
+            </p>
+          </div>
+
+          {/* Mode Switcher & Scan Action */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <div style={{
+              display: 'flex',
+              background: 'var(--bg-inset)',
+              borderRadius: '6px',
+              padding: '2px',
+              border: '1px solid var(--border-subtle)'
+            }}>
+              {['simulation', 'demo', 'hardware'].map(m => (
+                <button
+                  key={m}
+                  onClick={() => handleModeChange(m)}
+                  style={{
+                    padding: '4px 9px',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    borderRadius: '4px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    background: execMode === m ? 'var(--bg-card)' : 'transparent',
+                    color: execMode === m ? 'var(--pr-color)' : 'var(--text-muted)',
+                    boxShadow: execMode === m ? 'var(--shadow-sm)' : 'none',
+                    textTransform: 'capitalize'
+                  }}
+                >
+                  {m === 'hardware' ? 'Hardware Mode' : m}
+                </button>
+              ))}
+            </div>
+
             <button
-              onClick={() => setExecModeAndPersist('simulation')}
-              disabled={campaign.is_running}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                padding: '6px 14px',
-                borderRadius: '6px',
-                fontSize: '11px',
-                fontWeight: 700,
-                border: 'none',
-                cursor: campaign.is_running ? 'not-allowed' : 'pointer',
-                background: execMode === 'simulation' ? '#0284c7' : 'transparent',
-                color: execMode === 'simulation' ? '#ffffff' : 'var(--text-secondary)',
-                boxShadow: execMode === 'simulation' ? '0 1px 2px rgba(0,0,0,0.15)' : 'none',
-                transition: 'all 0.15s ease'
-              }}
+              className="btn-ghost"
+              onClick={handleScanIdentify}
+              disabled={isScanning}
+              style={{ fontSize: '11px', padding: '5px 10px', height: '28px' }}
             >
-              <Zap size={13} /> DEMO / SOFTWARE MODE
-            </button>
-            <button
-              onClick={() => setExecModeAndPersist('hardware')}
-              disabled={campaign.is_running}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                padding: '6px 14px',
-                borderRadius: '6px',
-                fontSize: '11px',
-                fontWeight: 700,
-                border: 'none',
-                cursor: campaign.is_running ? 'not-allowed' : 'pointer',
-                background: execMode === 'hardware' ? (readiness.ready ? '#059669' : '#0284c7') : 'transparent',
-                color: execMode === 'hardware' ? '#ffffff' : 'var(--text-secondary)',
-                boxShadow: execMode === 'hardware' ? '0 1px 2px rgba(0,0,0,0.15)' : 'none',
-                transition: 'all 0.15s ease'
-              }}
-            >
-              <Cpu size={13} /> HARDWARE MODE (DUAL USB)
+              <RefreshCw size={12} className={isScanning ? 'spin' : ''} />
+              Scan & Identify Hardware
             </button>
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {scanNotification && (
-            <span style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '4px 8px',
-              borderRadius: '6px',
-              fontSize: '11px',
-              fontWeight: 700,
-              background: 'rgba(5, 150, 105, 0.1)',
-              color: '#059669',
-              border: '1px solid rgba(5, 150, 105, 0.25)'
-            }}>
-              <CheckCircle2 size={12} /> {scanNotification.text}
-            </span>
-          )}
+        {/* Compact Scan Notification Toast */}
+        {scanNotification && (
+          <div style={{
+            marginTop: '8px',
+            padding: '5px 10px',
+            borderRadius: '6px',
+            fontSize: '11px',
+            fontWeight: 600,
+            background: 'rgba(2, 132, 199, 0.08)',
+            border: '1px solid rgba(2, 132, 199, 0.25)',
+            color: 'var(--pr-color)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px'
+          }}>
+            <CheckCircle2 size={13} />
+            {scanNotification.text}
+          </div>
+        )}
 
-          {readiness.ready && (
-            <span style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '4px 8px',
-              borderRadius: '6px',
-              fontSize: '11px',
-              fontWeight: 700,
-              background: 'rgba(5, 150, 105, 0.1)',
-              color: '#059669',
-              border: '1px solid rgba(5, 150, 105, 0.25)'
-            }}>
-              <CheckCircle2 size={12} /> HARDWARE DETECTED — VERIFIED
-            </span>
+        {/* Campaign Action Buttons */}
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginTop: '14px' }}>
+          {!campaign.is_running ? (
+            <button
+              className="btn-primary"
+              onClick={handleStartCampaign}
+              style={{ fontSize: '12px', padding: '6px 14px', background: '#dc2626' }}
+            >
+              <Play size={13} /> Start Campaign
+            </button>
+          ) : (
+            <button
+              className="btn-danger"
+              onClick={handleStopCampaign}
+              style={{ fontSize: '12px', padding: '6px 14px' }}
+            >
+              <Square size={13} /> Stop Campaign
+            </button>
           )}
 
           <button
             className="btn-ghost"
-            onClick={handleScanIdentify}
-            disabled={isScanning}
-            style={{ fontSize: '11px', padding: '6px 12px' }}
-            title="Scan USB ports and check firmware handshake"
+            onClick={handleResetCampaign}
+            disabled={campaign.is_running}
+            style={{ fontSize: '12px', padding: '6px 12px' }}
           >
-            <Activity size={13} />
-            {isScanning ? 'Scanning...' : 'Scan & Identify Hardware'}
+            <RotateCcw size={13} /> Reset
+          </button>
+
+          <button
+            className="btn-ghost"
+            onClick={() => window.location.href = '/api/evidence/export?format=csv'}
+            style={{ fontSize: '12px', padding: '6px 12px' }}
+          >
+            <Download size={13} /> Export Results (CSV)
+          </button>
+          <button
+            className="btn-ghost"
+            onClick={() => window.location.href = '/api/evidence/export?format=pdf'}
+            style={{ fontSize: '12px', padding: '6px 12px' }}
+          >
+            <FileText size={13} /> Export PDF Report
           </button>
         </div>
-      </div>
 
-      {/* 1. Primary Action Area: Red Team Campaign Controller */}
-      <div style={{
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border-subtle)',
-        borderRadius: '12px',
-        padding: '18px 20px',
-        boxShadow: 'var(--shadow-sm)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '14px'
-      }}>
-        {/* Header & Main Action Controls */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Radio size={18} color="#e11d48" />
-              <h2 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-                Red Team Campaign Controller
-              </h2>
-            </div>
-            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px', margin: 0 }}>
-              Controlled comparative test suite executing 20 scenarios across Layer 1 (Firmware Security) and Layer 4 (Data & Key Sanitization).
-            </p>
+        {/* Progress Bar & Status */}
+        <div style={{ marginTop: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+            <span>Progress: {campaign.current_index || 0} of {campaign.total_steps || totalTests} scenarios</span>
+            <span>{progressPercent}%</span>
           </div>
-
-          {/* Action Buttons */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', position: 'relative' }}>
-            {campaign.is_running ? (
-              <button 
-                className="btn-danger" 
-                onClick={handleStopCampaign}
-                style={{ fontSize: '12px', padding: '8px 16px', fontWeight: 700 }}
-              >
-                <Square size={13} fill="#ffffff" /> STOP CAMPAIGN
-              </button>
-            ) : (
-              <button 
-                className="btn-danger" 
-                onClick={handleStartCampaign}
-                disabled={isExecuting || campaign.is_running}
-                title="Start Red Team Campaign"
-                style={{
-                  fontSize: '12px',
-                  padding: '8px 16px',
-                  fontWeight: 700,
-                  opacity: (isExecuting || campaign.is_running) ? 0.5 : 1,
-                  cursor: (isExecuting || campaign.is_running) ? 'not-allowed' : 'pointer'
-                }}
-              >
-                <Play size={13} fill="#ffffff" /> START RED TEAM CAMPAIGN
-              </button>
-            )}
-
-            <button 
-              className="btn-ghost" 
-              onClick={handleResetCampaign}
-              disabled={campaign.is_running}
-              style={{ fontSize: '12px', padding: '8px 14px' }}
-            >
-              <RotateCcw size={13} /> RESET
-            </button>
-
-            {/* Export Dropdown */}
-            <div style={{ position: 'relative' }}>
-              <button 
-                className="btn-ghost" 
-                onClick={() => setShowExportMenu(!showExportMenu)}
-                style={{ fontSize: '12px', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '4px' }}
-              >
-                <Download size={13} /> EXPORT RESULTS <ChevronDown size={11} />
-              </button>
-
-              {showExportMenu && (
-                <div style={{
-                  position: 'absolute',
-                  right: 0,
-                  top: '100%',
-                  marginTop: '4px',
-                  background: 'var(--bg-card)',
-                  border: '1px solid var(--border-subtle)',
-                  borderRadius: '8px',
-                  boxShadow: 'var(--shadow-md)',
-                  zIndex: 50,
-                  minWidth: '170px',
-                  overflow: 'hidden'
-                }}>
-                  <button
-                    onClick={() => handleExport('pdf')}
-                    style={{
-                      width: '100%',
-                      textAlign: 'left',
-                      padding: '8px 12px',
-                      fontSize: '12px',
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--text-primary)',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px'
-                    }}
-                    onMouseEnter={(e) => e.target.style.background = 'var(--bg-hover)'}
-                    onMouseLeave={(e) => e.target.style.background = 'none'}
-                  >
-                    <FileText size={13} color="#e11d48" /> Export PDF Report
-                  </button>
-                  <button
-                    onClick={() => handleExport('csv')}
-                    style={{
-                      width: '100%',
-                      textAlign: 'left',
-                      padding: '8px 12px',
-                      fontSize: '12px',
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--text-primary)',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px'
-                    }}
-                    onMouseEnter={(e) => e.target.style.background = 'var(--bg-hover)'}
-                    onMouseLeave={(e) => e.target.style.background = 'none'}
-                  >
-                    <Download size={13} color="#2563eb" /> Export CSV Ledger
-                  </button>
-                  <button
-                    onClick={() => handleExport('json')}
-                    style={{
-                      width: '100%',
-                      textAlign: 'left',
-                      padding: '8px 12px',
-                      fontSize: '12px',
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--text-primary)',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px'
-                    }}
-                    onMouseEnter={(e) => e.target.style.background = 'var(--bg-hover)'}
-                    onMouseLeave={(e) => e.target.style.background = 'none'}
-                  >
-                    <FileCheck size={13} color="#16a34a" /> Export JSON Bundle
-                  </button>
-                  <div style={{ borderTop: '1px solid var(--border-subtle)', margin: '4px 0' }} />
-                  <button
-                    onClick={() => handleWaveformExport('csv')}
-                    style={{
-                      width: '100%',
-                      textAlign: 'left',
-                      padding: '8px 12px',
-                      fontSize: '12px',
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--text-primary)',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px'
-                    }}
-                    onMouseEnter={(e) => e.target.style.background = 'var(--bg-hover)'}
-                    onMouseLeave={(e) => e.target.style.background = 'none'}
-                  >
-                    <Activity size={13} color="#0891b2" /> Export Waveforms CSV
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Campaign Progress Bar */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px' }}>
-            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-              Campaign Progress: {campaign.is_running ? `Step ${campaign.current_index} of ${campaign.total_steps}` : campaign.status === 'COMPLETED' ? 'Completed (20/20)' : 'Idle (Ready to Start)'}
-            </span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-muted)' }}>
-              {campaign.current_scenario ? `Active: ${campaign.current_scenario}` : 'Status: ' + campaign.status}
-            </span>
-          </div>
-
           <div style={{ height: '6px', background: 'var(--bg-inset)', borderRadius: '3px', overflow: 'hidden' }}>
-            <div 
-              style={{
-                height: '100%',
-                background: '#0284c7',
-                width: `${(campaign.current_index / (campaign.total_steps || 20)) * 100}%`,
-                transition: 'width 0.3s ease'
-              }}
-            />
-          </div>
-
-          {/* 5 Compact Stages Tracker */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '8px',
-            overflowX: 'auto',
-            paddingTop: '4px'
-          }}>
-            {stages.map((stg, sIdx) => {
-              const isActive = campaign.is_running && campaign.stage === stg.id;
-              const isPast = campaign.is_running && currentStageIndex > sIdx;
-              return (
-                <div 
-                  key={stg.id}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '5px',
-                    fontSize: '11px',
-                    color: isActive ? '#e11d48' : isPast ? '#059669' : 'var(--text-muted)',
-                    fontWeight: isActive || isPast ? 700 : 500,
-                    whiteSpace: 'nowrap'
-                  }}
-                >
-                  <div style={{
-                    width: '7px',
-                    height: '7px',
-                    borderRadius: '50%',
-                    background: isActive ? '#e11d48' : isPast ? '#059669' : 'var(--border-subtle)',
-                    boxShadow: isActive ? '0 0 6px #e11d48' : 'none'
-                  }} />
-                  <span>{stg.label}</span>
-                </div>
-              );
-            })}
+            <div style={{
+              height: '100%',
+              width: `${progressPercent}%`,
+              background: 'linear-gradient(90deg, var(--pr-color), var(--rc-color))',
+              transition: 'width 0.3s ease'
+            }} />
           </div>
         </div>
 
-        {/* Compact Summary Row (Real Results) */}
-        <div className="unified-summary-bar" style={{ marginTop: '4px', marginBottom: 0 }}>
-          <div className="unified-summary-pill">
-            <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 600 }}>TOTAL SCENARIOS</span>
-            <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>20</span>
+        {/* 5 Compact Stages */}
+        <div className="unified-pipeline-bar" style={{ marginTop: '12px' }}>
+          <div className={`unified-pipeline-step ${getStageClass(1)}`}>
+            <span className="num">1</span>
+            <span className="title">Test started</span>
           </div>
-          <div className="unified-summary-pill">
-            <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 600 }}>COMPLETED TESTS</span>
-            <span style={{ fontSize: '16px', fontWeight: 800, color: '#0284c7' }}>{completedCount}</span>
+          <div className={`unified-pipeline-step ${getStageClass(2)}`}>
+            <span className="num">2</span>
+            <span className="title">Target checked</span>
           </div>
-          <div className="unified-summary-pill">
-            <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 600 }}>VERIFIED DEFENCES</span>
-            <span style={{ fontSize: '16px', fontWeight: 800, color: '#059669' }}>{passedCount}</span>
+          <div className={`unified-pipeline-step ${getStageClass(3)}`}>
+            <span className="num">3</span>
+            <span className="title">Defence evaluated</span>
           </div>
-          <div className="unified-summary-pill">
-            <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 600 }}>FAILURES</span>
-            <span style={{ fontSize: '16px', fontWeight: 800, color: failedCount > 0 ? '#dc2626' : 'var(--text-muted)' }}>{failedCount}</span>
+          <div className={`unified-pipeline-step ${getStageClass(4)}`}>
+            <span className="num">4</span>
+            <span className="title">Result verified</span>
+          </div>
+          <div className={`unified-pipeline-step ${getStageClass(5)}`}>
+            <span className="num">5</span>
+            <span className="title">Evidence saved</span>
           </div>
         </div>
       </div>
 
-      {/* 3. Attack vs Defence Evidence Waveform / Event Trace Panel (Section 6) */}
-      <AttackDefenceEventTrace
-        results={campaign.results}
-        activeScenarioId={campaign.current_scenario}
+      {/* 2. Compact Campaign Summary */}
+      <div className="unified-summary-bar">
+        <div className="unified-summary-pill">
+          <span className="lbl">Total Tests</span>
+          <span className="val">{totalTests}</span>
+        </div>
+        <div className="unified-summary-pill">
+          <span className="lbl">Passed / Defenses Verified</span>
+          <span className="val" style={{ color: 'var(--rc-color)' }}>{passedCount}</span>
+        </div>
+        <div className="unified-summary-pill">
+          <span className="lbl">Failed Tests</span>
+          <span className="val" style={{ color: failedCount > 0 ? 'var(--sev-critical)' : 'var(--text-muted)' }}>{failedCount}</span>
+        </div>
+        <div className="unified-summary-pill">
+          <span className="lbl">Not Verified</span>
+          <span className="val" style={{ color: 'var(--text-muted)' }}>{notVerifiedCount}</span>
+        </div>
+      </div>
+
+      {/* 3. Interactive Real-Time Waveform Viewer */}
+      <WaveformPlotlyChart
+        activeResult={completedResults[completedResults.length - 1]}
+        height={260}
       />
 
-      {/* 4. Filter Tabs for Scenario Cards */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-        <div style={{ display: 'flex', gap: '6px', background: 'var(--bg-card)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
-          {['All', 'Layer 1', 'Layer 4', 'Layers 2 & 3'].map((lyr) => (
-            <button
-              key={lyr}
-              onClick={() => setSelectedLayer(lyr)}
-              style={{
-                padding: '6px 14px',
-                borderRadius: '6px',
-                fontSize: '12px',
-                fontWeight: selectedLayer === lyr ? 700 : 500,
-                background: selectedLayer === lyr ? 'var(--bg-hover)' : 'transparent',
-                color: selectedLayer === lyr ? 'var(--text-primary)' : 'var(--text-secondary)',
-                border: 'none',
-                cursor: 'pointer'
-              }}
-            >
-              {lyr}
-            </button>
-          ))}
-        </div>
+      {/* 4. Unified Single Result Cards Grid */}
+      <div className="panel-card" style={{ padding: '16px 20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+          <h3 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+            Security Testing Scenarios ({filteredScenarios.length})
+          </h3>
 
-        {/* Execution Mode Selector */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
-          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Execution Target:</span>
-          <select
-            value={execMode}
-            onChange={(e) => setExecModeAndPersist(e.target.value)}
-            disabled={campaign.is_running}
-            title={campaign.is_running ? "Execution mode cannot be modified while campaign is running" : "Select execution mode"}
-            style={{
-              padding: '6px 10px',
-              borderRadius: '6px',
-              border: '1px solid var(--border-subtle)',
-              background: 'var(--bg-card)',
-              color: 'var(--text-primary)',
-              fontSize: '12px',
-              fontWeight: 600,
-              cursor: campaign.is_running ? 'not-allowed' : 'pointer',
-              opacity: campaign.is_running ? 0.6 : 1
-            }}
-          >
-            <option value="simulation">⚡ DEMO / SOFTWARE MODE (Hardware not required)</option>
-            <option value="hardware">🔌 HARDWARE MODE (Dual USB Microcontrollers)</option>
-          </select>
-        </div>
-      </div>
-
-      {/* 5. 10 Focused Scenario Cards Grid */}
-      <div className="unified-scenario-grid">
-        {displayedCatalog.map((sc) => {
-          const matchResult = campaign.results.find(r => r.test_id === sc.id);
-          const verdictStatus = matchResult ? matchResult.status_hardened : null;
-          return (
-            <div key={sc.id} className="unified-card">
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                  <span className="unified-card-id">{sc.id}</span>
-                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                    <span className={`csf-tag ${sc.csf_function?.toLowerCase()}`}>
-                      {sc.csf_category}
-                    </span>
-                    {verdictStatus ? (
-                      <span className={`result-tag ${verdictStatus === 'PASS' ? 'pass' : 'fail'}`} style={{ fontSize: '10px', padding: '2px 6px' }}>
-                        {verdictStatus}
-                      </span>
-                    ) : (
-                      <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: 'var(--bg-inset)', color: 'var(--text-muted)' }}>
-                        Not run
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <h4 style={{ fontSize: '13px', fontWeight: 700, margin: '4px 0', color: 'var(--text-primary)' }}>
-                  {sc.name}
-                </h4>
-
-                <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: '4px 0 10px', lineHeight: 1.4, minHeight: '32px' }}>
-                  {sc.description}
-                </p>
-
-                <div style={{
-                  background: 'var(--bg-inset)',
-                  borderRadius: '6px',
-                  padding: '6px 8px',
-                  fontSize: '11px',
-                  fontFamily: 'var(--font-mono)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '2px'
-                }}>
-                  <div style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }} title={sc.expected_baseline}>
-                    <span style={{ color: '#e11d48' }}>Baseline:</span> {sc.expected_baseline}
-                  </div>
-                  <div style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }} title={sc.expected_hardened}>
-                    <span style={{ color: '#059669' }}>Hardened:</span> {sc.expected_hardened}
-                  </div>
-                </div>
-              </div>
-
+          <div style={{ display: 'flex', gap: '6px' }}>
+            {['All', 'Layer 1', 'Layer 4'].map(layer => (
               <button
-                className="btn-ghost"
+                key={layer}
+                onClick={() => setSelectedLayer(layer)}
                 style={{
-                  width: '100%',
-                  justifyContent: 'center',
                   fontSize: '11px',
                   fontWeight: 600,
-                  padding: '6px 10px',
-                  marginTop: '8px',
-                  opacity: (isExecuting || campaign.is_running) ? 0.5 : 1,
-                  cursor: (isExecuting || campaign.is_running) ? 'not-allowed' : 'pointer'
-                }}
-                disabled={isExecuting || campaign.is_running}
-                title={`Run single test ${sc.id}`}
-                onClick={() => {
-                  if (execMode === 'hardware') {
-                    if (readiness.ready) {
-                      onExecuteTest(sc.id, 'real');
-                    } else {
-                      setAutoFallbackMsg('DEMO EXECUTION — NO PHYSICAL HARDWARE VERIFIED');
-                      setTimeout(() => setAutoFallbackMsg(null), 6000);
-                      onExecuteTest(sc.id, 'simulation');
-                    }
-                  } else {
-                    onExecuteTest(sc.id, 'simulation');
-                  }
+                  padding: '3px 8px',
+                  borderRadius: '4px',
+                  border: '1px solid var(--border-subtle)',
+                  background: selectedLayer === layer ? 'var(--bg-inset)' : 'transparent',
+                  color: selectedLayer === layer ? 'var(--text-primary)' : 'var(--text-muted)',
+                  cursor: 'pointer'
                 }}
               >
-                <Zap size={13} color="#e11d48" /> RUN ({sc.id})
+                {layer}
               </button>
-            </div>
-          );
-        })}
+            ))}
+          </div>
+        </div>
+
+        <div className="unified-scenario-grid">
+          {filteredScenarios.map((sc) => {
+            const meta = UNIFIED_SCENARIO_META[sc.id] || {
+              title: sc.name || sc.id,
+              attempted: sc.description || 'Test injection sequence dispatched.',
+              protection_what: 'Protection policy evaluated.'
+            };
+            const result = resultsMap[sc.id];
+            const verdict = getVerdictDetails(sc.id);
+            const isExpanded = expandedId === sc.id;
+
+            return (
+              <div
+                key={sc.id}
+                className={`unified-card ${isExpanded ? 'selected' : ''}`}
+                style={{ cursor: 'default' }}
+              >
+                {/* Header: ID + Plain-language Result */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span className="unified-card-id">{sc.id}</span>
+                  <span style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    padding: '2px 7px',
+                    borderRadius: '4px',
+                    background: verdict.badgeClass === 'pass'
+                      ? 'rgba(16, 185, 129, 0.12)'
+                      : verdict.badgeClass === 'fail'
+                      ? 'rgba(239, 68, 68, 0.12)'
+                      : 'var(--bg-subtle)',
+                    color: verdict.badgeClass === 'pass'
+                      ? 'var(--rc-color)'
+                      : verdict.badgeClass === 'fail'
+                      ? 'var(--sev-critical)'
+                      : 'var(--text-muted)'
+                  }}>
+                    {verdict.label}
+                  </span>
+                </div>
+
+                {/* Test Section */}
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.3 }}>
+                    {meta.title}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px', lineHeight: 1.35 }}>
+                    <strong style={{ color: 'var(--text-primary)' }}>Test:</strong> {meta.attempted}
+                  </div>
+                </div>
+
+                {/* Protection Result Section */}
+                <div style={{
+                  padding: '8px 10px',
+                  borderRadius: '6px',
+                  background: 'var(--bg-inset)',
+                  border: '1px solid var(--border-subtle)',
+                  fontSize: '11px',
+                  color: 'var(--text-secondary)',
+                  lineHeight: 1.35
+                }}>
+                  <div style={{ fontWeight: 700, color: 'var(--pr-color)', marginBottom: '2px' }}>
+                    Protection Result:
+                  </div>
+                  <div>
+                    {result ? (result.details_hardened || meta.protection_what) : 'Awaiting test execution.'}
+                  </div>
+                  {result && (
+                    <div style={{ marginTop: '4px', fontWeight: 700, color: verdict.badgeClass === 'pass' ? 'var(--rc-color)' : 'var(--sev-critical)' }}>
+                      Verdict: {verdict.label}
+                    </div>
+                  )}
+                </div>
+
+                {/* Card Actions: Run + View Details */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px', borderTop: '1px solid var(--border-subtle)', paddingTop: '6px' }}>
+                  <button
+                    className="btn-ghost"
+                    onClick={() => setExpandedId(isExpanded ? null : sc.id)}
+                    style={{ fontSize: '10px', padding: '3px 8px', height: '24px' }}
+                  >
+                    {isExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                    {isExpanded ? 'Hide' : 'View Details'}
+                  </button>
+
+                  <button
+                    className="btn-ghost"
+                    onClick={() => onExecuteTest && onExecuteTest(sc.id, execMode)}
+                    disabled={isExecuting || campaign.is_running}
+                    style={{ fontSize: '10px', padding: '3px 8px', height: '24px' }}
+                  >
+                    <Play size={10} /> Run
+                  </button>
+                </div>
+
+                {/* Expandable Technical Details */}
+                {isExpanded && (
+                  <div style={{
+                    marginTop: '8px',
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                    background: 'var(--bg-subtle)',
+                    border: '1px solid var(--border-subtle)',
+                    fontSize: '10px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px'
+                  }}>
+                    <div>
+                      <strong style={{ color: 'var(--text-primary)' }}>Evidence Level:</strong> {result?.evidence_level || 'N/A'}
+                    </div>
+                    {result?.latency_hardened_ms && (
+                      <div>
+                        <strong style={{ color: 'var(--text-primary)' }}>Observed Latency:</strong> {result.latency_hardened_ms} ms
+                      </div>
+                    )}
+                    {result?.observed_hardened && (
+                      <div>
+                        <strong style={{ color: 'var(--text-primary)' }}>Observed Response:</strong> <span style={{ fontFamily: 'var(--font-mono)' }}>{result.observed_hardened}</span>
+                      </div>
+                    )}
+                    {/* Embedded Plotly Trace */}
+                    <div style={{ marginTop: '6px' }}>
+                      <WaveformPlotlyChart scenarioId={sc.id} activeResult={result} height={160} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
