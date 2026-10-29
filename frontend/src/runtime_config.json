@@ -3,5 +3,5 @@
   "port": 8000,
   "api_base_url": "http://127.0.0.1:8000",
   "ws_url": "ws://127.0.0.1:8000/ws/telemetry",
-  "updated_at": 1793248514.6287205
+  "updated_at": 1793251199.545747
 }
