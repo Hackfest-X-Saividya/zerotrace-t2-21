@@ -5,12 +5,13 @@ firmware handshake validation, safe non-destructive inter-board tests,
 and strict gating of physical hardware testing.
 """
 
+import json
 import os
 import shutil
 import time
 import uuid
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
 
 logger = logging.getLogger("ZeroTrace.WorkflowGate")
@@ -277,20 +278,49 @@ class WorkflowGateManager:
             self.evaluate_hardware()
         return self.get_gate_status()
 
-    def _read_until(self, port: str, marker: str, window_s: float = 2.0) -> Optional[str]:
+    # ------------------------------------------------------------------
+    # Serial helpers
+    # ------------------------------------------------------------------
+    def _read_collect(self, port: str, marker: str, window_s: float = 2.0) -> Tuple[Optional[str], List[str]]:
         """
-        Keeps reading lines from a port for up to window_s seconds and returns the first
-        line containing `marker`. Other lines (STATUS polls, stale events) are skipped,
-        so they can no longer hide the line we are waiting for.
+        Keeps reading lines from a port for up to window_s seconds.
+        Returns (matched_line_or_None, all_lines_seen). Unrelated lines (STATUS polls,
+        stale events) are skipped, but kept in the list so a failure can be diagnosed.
         """
         sm = self.bridge.serial_mgr
+        seen: List[str] = []
         deadline = time.monotonic() + window_s
         while time.monotonic() < deadline:
             line = sm.read_line(port, timeout_s=0.2)
-            if line and marker in line:
-                return line
+            if not line:
+                continue
+            seen.append(line)
+            if marker in line:
+                return line, seen
+        return None, seen
+
+    def _read_until(self, port: str, marker: str, window_s: float = 2.0) -> Optional[str]:
+        """Returns the first line containing `marker` within window_s seconds, else None."""
+        matched, _ = self._read_collect(port, marker, window_s)
+        return matched
+
+    def _uno_trigger_count(self, port: str, window_s: float = 1.0) -> Optional[int]:
+        """Asks the Uno for STATUS and returns its trigger_count (None if no valid reply)."""
+        sm = self.bridge.serial_mgr
+        sm.write_line(port, "STATUS")
+        deadline = time.monotonic() + window_s
+        while time.monotonic() < deadline:
+            line = sm.read_line(port, timeout_s=0.2)
+            if line and "trigger_count" in line and "status" in line:
+                try:
+                    return int(json.loads(line)["trigger_count"])
+                except Exception:
+                    continue
         return None
 
+    # ------------------------------------------------------------------
+    # Wiring tests
+    # ------------------------------------------------------------------
     def run_uart_verification_test(self) -> Dict[str, Any]:
         """
         Tests ESP8266 D1/D2 to ESP32 RX2/TX2 link with framed nonce challenge.
@@ -304,10 +334,11 @@ class WorkflowGateManager:
 
         if self.bridge.physical_red_port and self.bridge.physical_blue_port:
             sm = self.bridge.serial_mgr
-            sm.clear_buffers(self.bridge.physical_red_port)
-            sm.write_line(self.bridge.physical_red_port, f"UART_TEST:{nonce}")
-            # Wait for the actual UART_TEST_RESULT line (skips stale/other lines)
-            resp = self._read_until(self.bridge.physical_red_port, "UART_TEST_RESULT", window_s=2.0)
+            with self.bridge.exclusive_serial():
+                sm.clear_buffers(self.bridge.physical_red_port)
+                sm.write_line(self.bridge.physical_red_port, f"UART_TEST:{nonce}")
+                # Wait for the actual UART_TEST_RESULT line (skips stale/other lines)
+                resp = self._read_until(self.bridge.physical_red_port, "UART_TEST_RESULT", window_s=2.0)
             rtt_ms = round((time.monotonic() - t0) * 1000, 2)
             passed = resp is not None and nonce in resp and "true" in resp.lower()
             evidence = f"Physical UART response: {resp} (RTT: {rtt_ms} ms)"
@@ -343,22 +374,52 @@ class WorkflowGateManager:
         """
         Tests ESP8266 D5 (GPIO14) pulse to Arduino Uno Pin D2 interrupt.
         Physical verification occurs ONLY if both red and target boards are connected.
+
+        PASS only if the Uno really saw the pulse:
+          (a) its TRIGGER_ACKNOWLEDGED line arrives within 2 s, OR
+          (b) its STATUS trigger_count increased across the pulse.
+        The evidence text always shows the counter values and the lines seen, so a
+        failure can be diagnosed (wire vs firmware vs something stealing serial lines).
         """
         self.current_state = STATE_WIRING_TEST
         self.operating_mode = MODE_WIRING_CHECKS_IN_PROGRESS
 
         event_id = f"EVT-{uuid.uuid4().hex[:6]}"
-        t0 = time.monotonic()
 
         if self.bridge.physical_red_port and self.bridge.physical_target_port:
             sm = self.bridge.serial_mgr
-            sm.clear_buffers(self.bridge.physical_target_port)
-            sm.write_line(self.bridge.physical_red_port, f"TRIGGER:{event_id}:10")
-            # Keep reading the Uno port until its real TRIGGER_ACKNOWLEDGED line shows up.
-            # STATUS lines and other noise are skipped, so they cannot cause a false FAIL.
-            target_resp = self._read_until(self.bridge.physical_target_port, "TRIGGER_ACKNOWLEDGED", window_s=2.0)
-            passed = target_resp is not None
-            evidence = f"Physical Arduino Pin D2 interrupt latched: {target_resp}"
+            red = self.bridge.physical_red_port
+            uno = self.bridge.physical_target_port
+
+            # Hold the port exclusively: background telemetry (STATUS polling) must not
+            # read the Uno while the test runs, or it steals the lines we wait for.
+            with self.bridge.exclusive_serial():
+                # 1) Counter before the pulse
+                sm.clear_buffers(uno)
+                count_before = self._uno_trigger_count(uno)
+                sm.clear_buffers(uno)
+
+                # 2) Fire the pulse from the Red Team board
+                sm.write_line(red, f"TRIGGER:{event_id}:10")
+
+                # 3) Watch the Uno for its real TRIGGER_ACKNOWLEDGED line
+                ack_line, seen = self._read_collect(uno, "TRIGGER_ACKNOWLEDGED", window_s=2.0)
+
+                # 4) Counter after the pulse
+                count_after = self._uno_trigger_count(uno)
+
+            counter_up = (
+                count_before is not None
+                and count_after is not None
+                and count_after > count_before
+            )
+
+            passed = (ack_line is not None) or counter_up
+            evidence = (
+                f"Physical Arduino Pin D2 interrupt latched: {ack_line} | "
+                f"trigger_count {count_before} -> {count_after} | "
+                f"lines seen: {seen[-3:]}"
+            )
             self.gate_conditions["G7_TRIGGER_LINK_VERIFIED"]["passed"] = passed
             self.gate_conditions["G7_TRIGGER_LINK_VERIFIED"]["evidence"] = evidence
         elif self.simulation_mode:

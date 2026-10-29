@@ -9,6 +9,8 @@ import json
 import logging
 import secrets
 import hashlib
+import threading
+from contextlib import contextmanager
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
 from backend.schema import TelemetryFrame
@@ -79,6 +81,26 @@ class HardwareBridge:
         self.start_monotonic = time.monotonic()
         self.active_scenario = "IDLE_MONITORING"
 
+        # Serial access lock: gate tests, layer-demo captures and command dispatch hold it
+        # so the background telemetry poller can never steal their serial lines.
+        self.serial_lock = threading.RLock()
+        self._last_rail_v: Optional[float] = None
+
+    @contextmanager
+    def exclusive_serial(self):
+        """
+        Hold exclusive access to the physical serial ports.
+        Use around any request/response exchange (gate tests, waveform captures):
+            with bridge.exclusive_serial():
+                ...
+        While held, read_current_telemetry() does not touch the Uno port.
+        """
+        self.serial_lock.acquire()
+        try:
+            yield
+        finally:
+            self.serial_lock.release()
+
     def scan_ports(self) -> List[Dict[str, Any]]:
         """Passive scan of available hardware ports (does not open connections)."""
         self.last_discovered_ports = self.serial_mgr.scan_ports()
@@ -92,62 +114,63 @@ class HardwareBridge:
         2. ESP32 (Blue Team Monitor)
         3. Arduino Uno (ATmega328P Target)
         """
-        ports = self.scan_ports()
-        self.unverified_ports.clear()
-        self.incompatible_ports.clear()
+        with self.serial_lock:
+            ports = self.scan_ports()
+            self.unverified_ports.clear()
+            self.incompatible_ports.clear()
 
-        # Identify candidate ports (filter only likely MCUs or unassigned ports)
-        candidate_ports = [p for p in ports if p.get("is_likely_mcu", False)]
+            # Identify candidate ports (filter only likely MCUs or unassigned ports)
+            candidate_ports = [p for p in ports if p.get("is_likely_mcu", False)]
 
-        for p in candidate_ports:
-            port_name = p["port"]
+            for p in candidate_ports:
+                port_name = p["port"]
 
-            # If already assigned and verified, test ping
-            if port_name in [self.physical_red_port, self.physical_blue_port, self.physical_target_port]:
-                if self._verify_port_health(port_name):
-                    continue
-                else:
-                    self._handle_disconnection(port_name)
+                # If already assigned and verified, test ping
+                if port_name in [self.physical_red_port, self.physical_blue_port, self.physical_target_port]:
+                    if self._verify_port_health(port_name):
+                        continue
+                    else:
+                        self._handle_disconnection(port_name)
 
-            # Execute PUF Challenge-Response Authentication
-            puf_result = self._probe_and_authenticate_puf(port_name)
-            if puf_result.get("status") in ("PUF_AUTHENTICATED", "VERIFIED"):
-                puf_result.setdefault("puf_authenticated", True)
-                role = puf_result.get("role")
-                if role == "RED_TEAM":
-                    self.physical_red_port = port_name
-                    self.board_info["red_team"] = puf_result
-                    logger.info(f"PUF Authenticated ESP8266 Red Team on {port_name} (PUF: {puf_result.get('puf_response')})")
-                elif role == "BLUE_TEAM":
-                    self.physical_blue_port = port_name
-                    self.board_info["blue_team"] = puf_result
-                    logger.info(f"PUF Authenticated ESP32 Blue Team on {port_name} (PUF: {puf_result.get('puf_response')})")
-                elif role == "TARGET":
-                    self.physical_target_port = port_name
-                    self.board_info["target"] = puf_result
-                    logger.info(f"PUF Authenticated Arduino Uno Target on {port_name} (PUF: {puf_result.get('puf_response')})")
-                else:
+                # Execute PUF Challenge-Response Authentication
+                puf_result = self._probe_and_authenticate_puf(port_name)
+                if puf_result.get("status") in ("PUF_AUTHENTICATED", "VERIFIED"):
+                    puf_result.setdefault("puf_authenticated", True)
+                    role = puf_result.get("role")
+                    if role == "RED_TEAM":
+                        self.physical_red_port = port_name
+                        self.board_info["red_team"] = puf_result
+                        logger.info(f"PUF Authenticated ESP8266 Red Team on {port_name} (PUF: {puf_result.get('puf_response')})")
+                    elif role == "BLUE_TEAM":
+                        self.physical_blue_port = port_name
+                        self.board_info["blue_team"] = puf_result
+                        logger.info(f"PUF Authenticated ESP32 Blue Team on {port_name} (PUF: {puf_result.get('puf_response')})")
+                    elif role == "TARGET":
+                        self.physical_target_port = port_name
+                        self.board_info["target"] = puf_result
+                        logger.info(f"PUF Authenticated Arduino Uno Target on {port_name} (PUF: {puf_result.get('puf_response')})")
+                    else:
+                        self.serial_mgr.disconnect(port_name)
+                elif puf_result.get("status") == "FIRMWARE_INCOMPATIBLE":
+                    self.incompatible_ports.append({
+                        "port": port_name,
+                        "reason": puf_result.get("reason"),
+                        "details": puf_result.get("data")
+                    })
                     self.serial_mgr.disconnect(port_name)
-            elif puf_result.get("status") == "FIRMWARE_INCOMPATIBLE":
-                self.incompatible_ports.append({
-                    "port": port_name,
-                    "reason": puf_result.get("reason"),
-                    "details": puf_result.get("data")
-                })
-                self.serial_mgr.disconnect(port_name)
-            else:
-                self.unverified_ports.append({
-                    "port": port_name,
-                    "description": p.get("description"),
-                    "status": "IDENTITY_UNVERIFIED"
-                })
-                self.serial_mgr.disconnect(port_name)
+                else:
+                    self.unverified_ports.append({
+                        "port": port_name,
+                        "description": p.get("description"),
+                        "status": "IDENTITY_UNVERIFIED"
+                    })
+                    self.serial_mgr.disconnect(port_name)
 
-        # Update operating mode based on physical connectivity
-        if self.physical_target_port and self.physical_red_port and self.physical_blue_port:
-            self.current_mode = MODE_TELEMETRY
-        else:
-            self.current_mode = MODE_SIMULATED
+            # Update operating mode based on physical connectivity
+            if self.physical_target_port and self.physical_red_port and self.physical_blue_port:
+                self.current_mode = MODE_TELEMETRY
+            else:
+                self.current_mode = MODE_SIMULATED
 
         return self.get_status()
 
@@ -343,15 +366,28 @@ class HardwareBridge:
         elapsed_ms = round((time.monotonic() - self.start_monotonic) * 1000, 2)
 
         if self.physical_target_port:
-            self.serial_mgr.write_line(self.physical_target_port, "STATUS")
-            line = self.serial_mgr.read_line(self.physical_target_port, timeout_s=0.1)
-            parsed = self._parse_json_message(line) if line else None
-            if parsed and "rail_v" in parsed:
-                v = float(parsed["rail_v"])
-                mode = MODE_TELEMETRY
+            # Non-blocking: if a gate test / capture holds the serial port, do NOT touch it
+            # (that is what used to steal TRIGGER_ACKNOWLEDGED and capture lines).
+            if self.serial_lock.acquire(blocking=False):
+                try:
+                    self.serial_mgr.write_line(self.physical_target_port, "STATUS")
+                    line = self.serial_mgr.read_line(self.physical_target_port, timeout_s=0.1)
+                    parsed = self._parse_json_message(line) if line else None
+                    if parsed and "rail_v" in parsed:
+                        v = float(parsed["rail_v"])
+                        self._last_rail_v = v
+                    else:
+                        v = self.arduino_sim.read_adc()
+                    mode = MODE_TELEMETRY
+                finally:
+                    self.serial_lock.release()
             else:
-                v = self.arduino_sim.read_adc()
-                mode = MODE_TELEMETRY
+                if self._last_rail_v is not None:
+                    v = self._last_rail_v
+                    mode = MODE_TELEMETRY
+                else:
+                    v = self.arduino_sim.read_adc()
+                    mode = MODE_SIMULATED
         else:
             v = self.arduino_sim.read_adc()
             mode = MODE_SIMULATED
@@ -371,8 +407,9 @@ class HardwareBridge:
 
     def dispatch_command_to_target(self, cmd: str) -> Dict[str, Any]:
         if self.physical_target_port:
-            self.serial_mgr.write_line(self.physical_target_port, cmd)
-            resp = self.serial_mgr.read_line(self.physical_target_port, timeout_s=0.3)
+            with self.serial_lock:
+                self.serial_mgr.write_line(self.physical_target_port, cmd)
+                resp = self.serial_mgr.read_line(self.physical_target_port, timeout_s=0.3)
             if resp:
                 return {"source": "PHYSICAL_SERIAL", "response": resp}
         return self.arduino_sim.process_command(cmd)
@@ -380,7 +417,8 @@ class HardwareBridge:
     def dispatch_red_team_scenario(self, scenario_id: str, payload: str) -> Dict[str, Any]:
         self.active_scenario = scenario_id
         if self.physical_red_port:
-            self.serial_mgr.write_line(self.physical_red_port, f"SCENARIO:{scenario_id}:{payload}")
+            with self.serial_lock:
+                self.serial_mgr.write_line(self.physical_red_port, f"SCENARIO:{scenario_id}:{payload}")
         return self.esp8266_sim.process_command(f"SCENARIO:{scenario_id}:{payload}")
 
     def shutdown(self):
