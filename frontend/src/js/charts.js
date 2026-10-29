@@ -279,6 +279,84 @@ class WaveformChartManager {
 
     Plotly.newPlot(containerId, traces, layout, config);
   }
+
+  static renderSineWaveformPlot(containerId, isFault = false) {
+    const el = document.getElementById(containerId);
+    if (!el || typeof Plotly === 'undefined') return;
+
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    const bgColor = isLight ? '#FFFFFF' : '#0F172A';
+    const gridColor = isLight ? '#E2E8F0' : '#26354D';
+    const textColor = isLight ? '#475569' : '#94A3B8';
+
+    const points = 200;
+    const timeMs = [];
+    const voltage = [];
+
+    for (let i = 0; i < points; i++) {
+      timeMs.push(i);
+      const t = i / points;
+      let v;
+      if (!isFault) {
+        // Smooth continuous nominal sine wave: y(t) = A * sin(2*pi*f*t) + offset
+        v = 2.5 + 1.8 * Math.sin(2.0 * Math.PI * 3.0 * t);
+      } else {
+        // Irregular / distorted waveform during fault
+        let base = 2.5 + 1.8 * Math.sin(2.0 * Math.PI * 3.0 * t);
+        let noise = 0.8 * Math.sin(2.0 * Math.PI * 25.0 * t);
+        if (i >= 60 && i <= 140) {
+          base = 1.1 + 0.3 * Math.sin(2.0 * Math.PI * 12.0 * t);
+        }
+        if (i % 15 === 0) noise -= 0.9;
+        v = Math.max(0.0, Math.min(5.0, base + noise));
+      }
+      voltage.push(parseFloat(v.toFixed(3)));
+    }
+
+    const trace = {
+      name: isFault ? 'Fault Event Distorted Waveform' : 'Nominal Smooth Sine Waveform y(t)',
+      x: timeMs,
+      y: voltage,
+      type: 'scatter',
+      mode: 'lines',
+      line: {
+        color: isFault ? '#F43F5E' : (isLight ? '#0284C7' : '#38BDF8'),
+        width: 2.5
+      }
+    };
+
+    const layout = {
+      margin: { l: 50, r: 25, t: 25, b: 35 },
+      paper_bgcolor: bgColor,
+      plot_bgcolor: bgColor,
+      showlegend: true,
+      legend: {
+        x: 0.01, y: 0.99,
+        font: { color: textColor, size: 11 },
+        bgcolor: isLight ? 'rgba(255, 255, 255, 0.8)' : 'rgba(15, 23, 42, 0.8)'
+      },
+      xaxis: {
+        title: { text: 'Elapsed Time (ms) — Continuous Telemetry Model', font: { color: textColor, size: 11 } },
+        gridcolor: gridColor,
+        tickfont: { color: textColor, size: 10 },
+        zeroline: false
+      },
+      yaxis: {
+        title: { text: 'Voltage (V)', font: { color: textColor, size: 11 } },
+        range: [0.0, 5.5],
+        gridcolor: gridColor,
+        tickfont: { color: textColor, size: 10 },
+        zeroline: false
+      }
+    };
+
+    const config = {
+      responsive: true,
+      displayModeBar: false
+    };
+
+    Plotly.newPlot(containerId, [trace], layout, config);
+  }
 }
 
 window.WaveformChartManager = WaveformChartManager;

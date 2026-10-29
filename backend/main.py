@@ -7,6 +7,7 @@ strict hardware gate enforcement, toolchain controls, and static frontend hostin
 import os
 import sys
 import time
+import math
 import socket
 import asyncio
 import uuid
@@ -47,6 +48,10 @@ from backend.evidence.exporter import EvidenceExporter
 from backend.telemetry.layer_demo import (
     generate_simulated_layer_demo, execute_measured_layer_demo
 )
+from backend.scenarios.layer_scenarios import (
+    SCENARIOS, get_scenarios_for_layer, get_scenario, execute_scenario, active_executions
+)
+from backend.evidence.layer_reports import LayerReportGenerator, LAYER_CONFIG
 
 logger = logging.getLogger("ZeroTrace.Main")
 
@@ -429,6 +434,171 @@ def get_problems_endpoint(layer: Optional[int] = None):
         d["current_status"] = problem_status_cache.get(p_id, STATUS_NOT_TESTED)
         items.append(d)
     return items
+
+
+# -------------------------------------------------------------
+# 4-Layer Master Security Scenario & Execution APIs
+# -------------------------------------------------------------
+
+@app.get("/api/layers")
+def get_all_layers():
+    return {
+        "layers": [
+            {
+                "layer_id": 1,
+                "name": "Runtime & Communication Security",
+                "title": "Layer 1 — Runtime & Communication Security",
+                "has_waveform": False,
+                "scenarios_count": len(SCENARIOS.get(1, []))
+            },
+            {
+                "layer_id": 2,
+                "name": "Fault Resilience",
+                "title": "Layer 2 — Fault Resilience & Waveform Visualization",
+                "has_waveform": True,
+                "scenarios_count": len(SCENARIOS.get(2, []))
+            },
+            {
+                "layer_id": 3,
+                "name": "Firmware Trust",
+                "title": "Layer 3 — Firmware Trust & Anti-Rollback",
+                "has_waveform": False,
+                "scenarios_count": len(SCENARIOS.get(3, []))
+            },
+            {
+                "layer_id": 4,
+                "name": "Secure Updates & Data Protection",
+                "title": "Layer 4 — Secure Updates & Data Protection",
+                "has_waveform": False,
+                "scenarios_count": len(SCENARIOS.get(4, []))
+            }
+        ]
+    }
+
+
+@app.get("/api/layers/{layer_id}/scenarios")
+def get_layer_scenarios_endpoint(layer_id: int):
+    if layer_id < 1 or layer_id > 4:
+        raise HTTPException(status_code=400, detail="Layer ID must be between 1 and 4")
+    return {"layer_id": layer_id, "scenarios": get_scenarios_for_layer(layer_id)}
+
+
+@app.post("/api/tests/start")
+async def start_layer_test_endpoint(payload: Dict[str, Any] = Body(...)):
+    layer_id = int(payload.get("layer_id", 1))
+    scenario_id = str(payload.get("scenario_id", f"L{layer_id}-01"))
+
+    is_hw = gate.is_hardware_ready() or (
+        bridge.physical_target_port is not None and not gate.simulation_mode
+    )
+
+    # Physical microcontroller stimulus where supported
+    if is_hw and layer_id == 1 and bridge.physical_red_port:
+        try:
+            bridge.serial_mgr.write_line(bridge.physical_red_port, f"SCENARIO:{scenario_id}:RUN")
+        except Exception as e:
+            logger.warning(f"Red team trigger warning: {e}")
+    elif is_hw and layer_id == 2 and bridge.physical_red_port:
+        try:
+            bridge.serial_mgr.write_line(bridge.physical_red_port, "GLITCH:15:EXEC")
+        except Exception as e:
+            logger.warning(f"Red team glitch warning: {e}")
+
+    result = execute_scenario(layer_id, scenario_id, is_hardware_ready=is_hw)
+
+    # Generate individual execution PDF
+    try:
+        LayerReportGenerator.generate_layer_report(layer_id, execution_data=result)
+    except Exception as e:
+        logger.warning(f"Execution report generation warning: {e}")
+
+    await ws_manager.broadcast_json({"type": "LAYER_TEST_COMPLETED", "data": result})
+    return result
+
+
+@app.post("/api/tests/{execution_id}/stop")
+def stop_layer_test_endpoint(execution_id: str):
+    if execution_id in active_executions:
+        active_executions[execution_id]["final_status"] = "CANCELLED"
+        return {"status": "CANCELLED", "execution_id": execution_id}
+    return {"status": "NOT_FOUND", "execution_id": execution_id}
+
+
+@app.get("/api/tests/{execution_id}")
+def get_layer_test_status_endpoint(execution_id: str):
+    if execution_id not in active_executions:
+        raise HTTPException(status_code=404, detail="Execution ID not found")
+    return active_executions[execution_id]
+
+
+@app.get("/api/tests/{execution_id}/events")
+def get_layer_test_events_endpoint(execution_id: str):
+    if execution_id not in active_executions:
+        raise HTTPException(status_code=404, detail="Execution ID not found")
+    return {"execution_id": execution_id, "events": active_executions[execution_id].get("timeline", [])}
+
+
+@app.get("/api/tests/{execution_id}/evidence")
+def get_layer_test_evidence_endpoint(execution_id: str):
+    if execution_id not in active_executions:
+        raise HTTPException(status_code=404, detail="Execution ID not found")
+    data = active_executions[execution_id]
+    return {
+        "execution_id": execution_id,
+        "evidence_id": data.get("evidence_id"),
+        "evidence_source": data.get("evidence_source"),
+        "final_status": data.get("final_status"),
+        "observed_result": data.get("observed_result")
+    }
+
+
+@app.get("/api/tests/{execution_id}/report.pdf")
+def download_execution_pdf_endpoint(execution_id: str):
+    pdf_path = os.path.join(EXPORTS_DIR, f"{execution_id}_report.pdf")
+    if not os.path.exists(pdf_path):
+        if execution_id in active_executions:
+            exec_data = active_executions[execution_id]
+            LayerReportGenerator.generate_layer_report(exec_data["layer_id"], execution_data=exec_data)
+        else:
+            raise HTTPException(status_code=404, detail="Report PDF not found")
+    return FileResponse(pdf_path, media_type="application/pdf", filename=f"{execution_id}_report.pdf")
+
+
+@app.get("/api/reports/layer/{layer_id}.pdf")
+def download_layer_pdf_endpoint(layer_id: int):
+    if layer_id < 1 or layer_id > 4:
+        raise HTTPException(status_code=400, detail="Layer ID must be between 1 and 4")
+    cfg = LAYER_CONFIG.get(layer_id)
+    pdf_path = os.path.join(EXPORTS_DIR, cfg["filename"])
+    if not os.path.exists(pdf_path):
+        LayerReportGenerator.generate_layer_report(layer_id)
+    return FileResponse(pdf_path, media_type="application/pdf", filename=cfg["filename"])
+
+
+@app.get("/api/waveform/sine")
+def get_sine_waveform_data_endpoint(is_fault: bool = False, points: int = 200):
+    time_ms = [round(i * 1.0, 1) for i in range(points)]
+    values = []
+    for i in range(points):
+        t = i / float(points)
+        if not is_fault:
+            v = 2.5 + 1.8 * math.sin(2.0 * math.pi * 3.0 * t)
+        else:
+            base = 2.5 + 1.8 * math.sin(2.0 * math.pi * 3.0 * t)
+            noise = 0.8 * math.sin(2.0 * math.pi * 25.0 * t)
+            if 60 <= i <= 140:
+                base = 1.1 + 0.3 * math.sin(2.0 * math.pi * 12.0 * t)
+            if i % 15 == 0:
+                noise -= 0.9
+            v = base + noise
+        values.append(round(max(0.0, min(5.0, v)), 3))
+
+    return {
+        "status": "FAULT_DISTORTED" if is_fault else "NORMAL_SINE",
+        "data_source": "SIMULATED WAVEFORM — NOT A MEASURED VOLTAGE TRACE",
+        "time_ms": time_ms,
+        "voltage": values
+    }
 
 
 @app.get("/api/catalog")

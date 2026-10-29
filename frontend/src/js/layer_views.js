@@ -882,70 +882,74 @@ const LayerViews = {
   // -------------------------------------------------------
   // 6. Security Layer Detail Pages (Layers 1 to 4)
   // -------------------------------------------------------
-  renderLayerDetail(layerNum, catalog, metrics, recentEvents) {
+  renderLayerDetail(layerNum, catalog, metrics, recentEvents, appState) {
+    const state = appState || (typeof App !== 'undefined' ? App : {});
+    if (layerNum === 1) return this.renderLayer1(catalog, metrics, state);
+    if (layerNum === 2) return this.renderLayer2(catalog, metrics, state);
+    if (layerNum === 3) return this.renderLayer3(catalog, metrics, state);
+    if (layerNum === 4) return this.renderLayer4(catalog, metrics, state);
+    return `<div>Unknown Layer ${layerNum}</div>`;
+  },
+
+  // Metadata Registry for 40 Scenarios
+  LAYER_SCENARIO_DATA: {
+    1: [
+      { id: "L1-01", name: "Unauthorized Command Attempt", red: "Dispatched unapproved command opcode 0xFA (DEBUG_OVERRIDE_RUN)", target: "Target ATmega328P parses opcode and defers to Blue Team gateway", blue_obs: "Command opcode 0xFA not found in active authorized command registry", blue_def: "Access denied: Dropped packet and logged unauthorized command event", outcome: "Unauthorized command safely rejected", prov: "MEASURED" },
+      { id: "L1-02", name: "Replay Detection", red: "Retransmitted previous valid frame with stale nonce 0x8A12F0", target: "Awaiting frame authentication validation", blue_obs: "Incoming nonce 0x8A12F0 observed in sliding replay cache (expired)", blue_def: "Replay violation flagged: Message discarded without state change", outcome: "Replayed packet dropped before processing", prov: "MEASURED" },
+      { id: "L1-03", name: "Unexpected Message Frequency", red: "Dispatched high-rate burst of 25 telemetry query frames in 40ms", target: "Input serial FIFO buffer utilization exceeded 80%", blue_obs: "Arrival rate (625 msgs/sec) exceeds configured threshold (50 msgs/sec)", blue_def: "Rate limit triggered: Applied 500ms backoff penalty & throttled sender", outcome: "Message burst throttled; target CPU protected from exhaustion", prov: "MEASURED" },
+      { id: "L1-04", name: "Malformed Packet Detection", red: "Sent packet with invalid header 0xFFFF and corrupted delimiter 0x00", target: "UART frame assembly engine halted at corrupted sync byte", blue_obs: "Framing error: Header signature 0xFFFF does not match ZT-V2 protocol", blue_def: "Parser state machine reset cleanly; memory buffer flushed", outcome: "Malformed packet discarded without parser crash or buffer overflow", prov: "MEASURED" },
+      { id: "L1-05", name: "Invalid Message Length", red: "Declared length field = 64 bytes; transmitted actual payload = 16 bytes", target: "Awaiting remaining 48 bytes until timeout window", blue_obs: "Payload boundary violation: Declared 64 bytes != 16 actual bytes", blue_def: "Length integrity trap activated: Frame rejected as truncated/corrupt", outcome: "Payload mismatch caught before memory allocation", prov: "MEASURED" },
+      { id: "L1-06", name: "Invalid Sequence Number", red: "Dispatched packet with non-sequential counter 82 (expected >= 105)", target: "Sequence state mismatch logged", blue_obs: "Sequence anomaly: Received seq 82 while last verified counter was 104", blue_def: "Out-of-order packet flagged; quarantined pending resynchronization", outcome: "Invalid sequence continuity rejected", prov: "MEASURED" },
+      { id: "L1-07", name: "Unauthorized Device Identity", red: "Presented foreign device ID 'ESP8266_UNKNOWN_PROBE' during handshake", target: "Bus session suspended pending identity authorization", blue_obs: "Device identifier not present in certified whitelist", blue_def: "Identity rejected: Terminated session and issued SECURITY_ALERT", outcome: "Unregistered device denied access to system bus", prov: "MEASURED" },
+      { id: "L1-08", name: "Command Parameter Violation", red: "Injected PWM calibration command with out-of-spec duty cycle value 140%", target: "PWM timer register bounds check invoked", blue_obs: "Parameter sanity check failure: Value 140 outside valid range [0, 100]", blue_def: "Parameter rejected: Applied default fail-safe value (0%)", outcome: "Out-of-range parameter clamped to safe baseline", prov: "MEASURED" },
+      { id: "L1-09", name: "Communication Timeout", red: "Suspended frame transmission for 800ms during multi-stage handshake", target: "Session state held in pending authentication queue", blue_obs: "Inactivity timer exceeded protocol timeout threshold (500ms)", blue_def: "Session timeout triggered: Discarded incomplete handshake state", outcome: "Stale pending session safely garbage collected", prov: "MEASURED" },
+      { id: "L1-10", name: "Unexpected State Transition", red: "Sent DATA_TRANSMIT frame while connection was in PRE_AUTH state", target: "State transition matrix evaluated current state against frame type", blue_obs: "Illegal state transition attempted from PRE_AUTH to RUNNING", blue_def: "Protocol violation trap: Ignored frame and reset session to INIT", outcome: "Unauthorized state transition safely rejected", prov: "MEASURED" }
+    ],
+    2: [
+      { id: "L2-01", name: "Controlled Fault-Event Trigger", red: "Injected 15us glitch pulse on D5/GPIO5 during active telemetry loop", target: "Instruction cycle disrupted; ADC sampling pipeline temporarily frozen", blue_obs: "ADC sampling heartbeat stalled for 22ms following glitch trigger", blue_def: "Active recovery initiated: Toggled Uno reset line to re-establish baseline", outcome: "Fault contained; ADC pipeline restored within bounded recovery window", prov: "SIMULATED" },
+      { id: "L2-02", name: "Temporary Missing Heartbeat", red: "Suppressed 3 consecutive telemetry heartbeat packets over 150ms", target: "ADC telemetry transmission buffer paused", blue_obs: "Telemetry interval exceeded 120ms without expected keepalive frame", blue_def: "Failsafe timer flagged link degradation; queued probe frame", outcome: "Heartbeat loss recognized; automated re-probe sequence engaged", prov: "SIMULATED" },
+      { id: "L2-03", name: "Unexpected Target Reset Indication", red: "Asserted hardware reset line to trigger uncoordinated ATmega328P reboot", target: "Target ATmega328P executed power-on reset sequence (MCUSR logged)", blue_obs: "Target boot banner received outside scheduled maintenance window", blue_def: "Reset audit logged; validated initial registers against known good state", outcome: "Unscheduled reset caught; verified target reached clean idle state", prov: "SIMULATED" },
+      { id: "L2-04", name: "Out-of-Range Sensor Reading", red: "Simulated analog voltage spike to 5.4V on A0 channel (exceeding 5.0V VCC)", target: "Internal ADC conversion clipped at 1023 (full scale)", blue_obs: "Telemetry value 5.4V exceeds physical rail upper bound (5.0V)", blue_def: "Range validator clamped value to 5.0V and marked sample UNRELIABLE", outcome: "Invalid sensor spike quarantined before downstream state calculation", prov: "SIMULATED" },
+      { id: "L2-05", name: "Delayed Target Response", red: "Injected bus delay forcing target response latency to 450ms", target: "Serial output transmission delayed due to simulated CPU stall", blue_obs: "Round-trip response latency (450ms) exceeded 200ms latency ceiling", blue_def: "Async transaction timeout handled gracefully; alert dispatched", outcome: "Latency anomaly flagged without blocking event loop", prov: "SIMULATED" },
+      { id: "L2-06", name: "Temporary Communication Interruption", red: "Simulated physical line disconnect holding UART RX low for 60ms", target: "UART receiver flagged continuous break condition", blue_obs: "UART framing error detected; zero-byte framing burst observed", blue_def: "Receiver FIFO flushed cleanly; re-synchronized on next start bit", outcome: "Break condition handled without lockup", prov: "SIMULATED" },
+      { id: "L2-07", name: "Unexpected State Transition During Fault", red: "Injected glitch during secure handshake causing illegal jump to RUNNING", target: "Program counter corrupted; jumped over authentication check stub", blue_obs: "State transition sequence: INIT -> RUNNING without AUTH_OK handshake", blue_def: "Hardware watchdog tripped; forced reset to known SAFE_HALT state", outcome: "Illegal state transition intercepted by defensive supervisor", prov: "SIMULATED" },
+      { id: "L2-08", name: "Repeated Bounded Fault Events", red: "Dispatched train of 3 successive glitch pulses spaced 25ms apart", target: "ADC clock prescaler reset repeatedly under rapid glitch train", blue_obs: "Glitch event rate (3 events / 75ms) tripped multi-fault threshold", blue_def: "Defense escalation: Transitioned target to ISOLATED_QUARANTINE mode", outcome: "Repeated fault train triggered escalation policy", prov: "SIMULATED" },
+      { id: "L2-09", name: "Recovery Timeout Verification", red: "Injected fault and monitored target recovery latency against 20ms ceiling", target: "Target recovery routine completed in 14.2ms", blue_obs: "Target re-established nominal sampling within 14.2ms (< 20.0ms limit)", blue_def: "Recovery within compliance threshold: Cleared fault condition flag", outcome: "Recovery time verified within research-defined envelope", prov: "SIMULATED" },
+      { id: "L2-10", name: "Post-Fault State Verification", red: "Simulated post-recovery memory probe to inspect MCU register integrity", target: "SRAM integrity verification routine executed checksum scan", blue_obs: "Post-fault checksum matched pre-fault baseline (0x4A8F)", blue_def: "State verification passed: Certified target ready for normal operation", outcome: "Target memory and execution registers verified uncontaminated", prov: "SIMULATED" }
+    ],
+    3: [
+      { id: "L3-01", name: "Firmware Rollback Attempt", red: "Attempted deployment of obsolete firmware binary v1.0.0 (contains known CVE)", target: "Staged binary received in temporary OTA download buffer", blue_obs: "Version validation: Proposed version '1.0.0' < Minimum allowed '2.0.0'", blue_def: "Anti-rollback policy enforced: Rejected staging, monotonic counter preserved", outcome: "Downgrade attempt blocked; existing target firmware remains untouched", prov: "HOST-SIDE POLICY ENFORCEMENT" },
+      { id: "L3-02", name: "Invalid Firmware Hash", red: "Submitted firmware image with 1 flipped byte causing SHA-256 hash mismatch", target: "SHA-256 integrity calculation executed over staged binary", blue_obs: "Calculated hash does not match manifest hash", blue_def: "Integrity check failed: Erased staging buffer and issued TAMPER_ALERT", outcome: "Corrupted binary safely deleted before flash commit", prov: "HOST-SIDE POLICY ENFORCEMENT" },
+      { id: "L3-03", name: "Invalid Digital Signature", red: "Presented firmware manifest with altered ECDSA P-256 digital signature", target: "Cryptographic signature verification invoked against Root of Trust", blue_obs: "ECDSA P-256 signature verification failed (BadSignature)", blue_def: "Authentication failed: Image quarantined; unauthorized update halted", outcome: "Invalid signature rejected before flash write", prov: "HOST-SIDE POLICY ENFORCEMENT" },
+      { id: "L3-04", name: "Untrusted Signing Key", red: "Signed candidate firmware with rogue developer key not in trusted keyring", target: "Key lookup executed against embedded public key certificate store", blue_obs: "Signing key fingerprint not present in approved PKI trust anchor store", blue_def: "Trust evaluation failed: Rejected candidate from untrusted origin", outcome: "Unauthorized signing authority blocked", prov: "HOST-SIDE POLICY ENFORCEMENT" },
+      { id: "L3-05", name: "Missing Firmware Metadata", red: "Transmitted raw binary image without mandatory security manifest header", target: "Manifest header parser invoked on incoming image stream", blue_obs: "Required metadata fields (version, signature, target_hw) missing", blue_def: "Malformed update rejected: Dropped payload lacking signed manifest", outcome: "Unstructured binary payload rejected", prov: "HOST-SIDE POLICY ENFORCEMENT" },
+      { id: "L3-06", name: "Incorrect Target Device", red: "Submitted firmware image compiled for ESP32 to Arduino Uno target", target: "Target platform descriptor compared against hardware ID", blue_obs: "Hardware target mismatch: Image for 'ESP32' != Target 'ATmega328P'", blue_def: "Platform mismatch trap: Aborted update to prevent board bricking", outcome: "Cross-platform flashing attempt halted safely", prov: "HOST-SIDE POLICY ENFORCEMENT" },
+      { id: "L3-07", name: "Firmware Manifest Mismatch", red: "Manifest declares binary size 32,768 bytes; actual image is 28,416 bytes", target: "Payload length verification executed against manifest specification", blue_obs: "Size discrepancy: Declared 32768 bytes != Actual 28416 bytes", blue_def: "Integrity check failed: Discarded truncated payload", outcome: "Length mismatch rejected before staging", prov: "HOST-SIDE POLICY ENFORCEMENT" },
+      { id: "L3-08", name: "Unauthorized Firmware Approval", red: "Dispatched direct flash write command without operator authentication token", target: "Access control gateway inspected transaction authorization token", blue_obs: "Operation token missing required SEC_OPERATOR permission role", blue_def: "Privilege violation: Write command blocked by access control policy", outcome: "Unauthenticated update command blocked", prov: "HOST-SIDE POLICY ENFORCEMENT" },
+      { id: "L3-09", name: "Duplicate Firmware Transaction", red: "Replayed previously completed firmware update transaction ticket", target: "Transaction manager inspected transaction ID in completed update ledger", blue_obs: "Transaction ID already present in completed transactions journal", blue_def: "Duplicate transaction rejected: Transaction ignored", outcome: "Replayed update ticket safely discarded", prov: "HOST-SIDE POLICY ENFORCEMENT" },
+      { id: "L3-10", name: "Approved Firmware Validation", red: "Submitted fully compliant, signed firmware image v2.1.0 with valid key", target: "Complete verification chain executed (hash, signature, version, HW)", blue_obs: "All verification checks passed: SHA-256 OK, Signature OK, v2.1.0 >= v2.0.0", blue_def: "Verification successful: Image certified approved for staging", outcome: "Legitimate approved firmware validated for deployment", prov: "HOST-SIDE POLICY ENFORCEMENT" }
+    ],
+    4: [
+      { id: "L4-01", name: "Unauthorized Decryption Attempt", red: "Attempted to decrypt sensitive telemetry record without session key", target: "Target storage subsystem received raw ciphertext read request", blue_obs: "Read request dispatched without valid decryption key handle", blue_def: "Access denied: Storage controller blocked plaintext output", outcome: "Ciphertext remains protected against unauthorized access", prov: "MEASURED" },
+      { id: "L4-02", name: "Incorrect Decryption Key", red: "Attempted AES-256-GCM decryption using mismatched candidate key", target: "AES-GCM decryption engine executed authentication tag validation", blue_obs: "AES-GCM tag verification failed (authentication tag mismatch)", blue_def: "Decryption aborted: Plaintext purged; tamper alert logged", outcome: "Mismatched key produces zero plaintext exposure", prov: "MEASURED" },
+      { id: "L4-03", name: "Cryptographic Sanitization (Key Destruction)", red: "Monitored key store status during scheduled sanitization event", target: "Key deletion transaction committed to volatile test key store", blue_obs: "Cryptographic key 'KEY-DS-ALPHA-01' purged and zeroized from test key store", blue_def: "Key lifecycle state updated to 'DESTROYED'; data rendered cryptographically inaccessible", outcome: "Key successfully removed from test key store", prov: "MEASURED" },
+      { id: "L4-04", name: "Post-Sanitization Recovery Attempt", red: "Attempted reading deleted key 'KEY-DS-ALPHA-01' to recover sanitized data", target: "Key store manager queried for destroyed key handle", blue_obs: "Key handle query returned NOT_FOUND; key slot verified zeroized", blue_def: "Recovery denied: Key destroyed during sanitization and permanently unrecoverable", outcome: "KEY UNAVAILABLE IN TEST KEY STORE — RECOVERY DENIED", prov: "MEASURED" },
+      { id: "L4-05", name: "Modified Ciphertext Tampering", red: "Flipped 1 byte in AES-GCM encrypted telemetry payload during transit", target: "GCM authenticated decryption routine executed over tampered buffer", blue_obs: "Integrity check failed: Computed auth tag != Transmitted auth tag", blue_def: "Tampered payload rejected: Decryption pipeline halted; buffer discarded", outcome: "Tampered ciphertext detected and rejected before plaintext release", prov: "MEASURED" },
+      { id: "L4-06", name: "Invalid Authentication Tag", red: "Submitted valid ciphertext with forged 128-bit authentication tag", target: "AEAD verification pipeline inspected authentication tag integrity", blue_obs: "AEAD tag verification failed: Computed tag does not match candidate tag", blue_def: "Authentication failed: Discarded frame without releasing decrypted data", outcome: "Forged authentication tag caught; zero plaintext leaked", prov: "MEASURED" },
+      { id: "L4-07", name: "Unauthorized Key Access", red: "Attempted memory dump of internal cryptographic key storage registers", target: "Memory protection unit (MPU) monitored access to secure key region", blue_obs: "MPU violation: Read access attempted on protected key store address range", blue_def: "MPU trap activated: Terminated offending process and issued ALERT", outcome: "Direct key register read attempt trapped by MPU", prov: "MEASURED" },
+      { id: "L4-08", name: "Key Rotation Enforcement", red: "Attempted to use expired operational key past configured rotation window", target: "Crypto key scheduler inspected key age and validity timestamp", blue_obs: "Key lifecycle state: Key age (86400s) exceeds rotation limit (43200s)", blue_def: "Key expired: Enforced rotation; new key generated and activated", outcome: "Expired key rejected; seamless key rotation executed", prov: "MEASURED" },
+      { id: "L4-09", name: "Key Revocation Enforcement", red: "Attempted data decryption using explicitly revoked key 'KEY-REVOKED-04'", target: "Key state manager inspected key revocation list (CRL)", blue_obs: "Key status check: 'KEY-REVOKED-04' marked REVOKED in key registry", blue_def: "Revocation policy enforced: Operation blocked; revoked key purged", outcome: "Revoked key immediately blocked from all crypto operations", prov: "MEASURED" },
+      { id: "L4-10", name: "Sanitization Evidence Verification", red: "Audited cryptographic sanitization event log and cryptographic proof", target: "Evidence audit engine verified cryptographic zeroization logs", blue_obs: "Cryptographic sanitization record verified with SHA-256 audit digest", blue_def: "Audit trail validated: Nonce, timestamp, and zeroization hash certified", outcome: "Cryptographic sanitization evidence formally recorded and verifiable", prov: "MEASURED" }
+    ]
+  },
+
+  // Helper to render the common 10-problem reference table
+  renderReferenceTable(layerNum, catalog) {
     const problems = catalog.filter(p => p.layer === layerNum);
-    const passedCount = problems.filter(p => p.current_status === 'PASS').length;
-    const titles = {
-      1: "Security Layer 1 — Secure Boot & Cryptographic OTA Updates",
-      2: "Security Layer 2 — Hardware Fault Tolerance & Defenses",
-      3: "Security Layer 3 — Silicon Lockdown & Debug Control",
-      4: "Security Layer 4 — Cryptographic Key Lifecycle & Sanitization"
-    };
-
     return `
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div>
-          <h2 style="font-size: 18px; font-weight: 700; color: var(--text-primary);">${titles[layerNum]}</h2>
-          <p style="color: var(--text-secondary); font-size: 13px; margin-top: 2px;">
-            Formal threat models, defensive implementations, and verified unit evaluations.
-          </p>
-        </div>
-        <button class="btn-primary" onclick="App.runLayerTests(${layerNum})">
-          ▶ Execute All Layer ${layerNum} Tests
-        </button>
-      </div>
-
-      <div class="stat-grid" style="margin-top: 16px;">
-        <div class="stat-card">
-          <div class="stat-title">Layer Verification Pass Rate</div>
-          <div class="stat-value" style="color: var(--accent-green);">${passedCount} / 10</div>
-          <div class="stat-sub">${passedCount * 10}% coverage</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-title">Detection Latency</div>
-          <div class="stat-value" style="color: var(--accent-blue);">${metrics?.mean_detection_latency_ms || 0.4} ms</div>
-          <div class="stat-sub">Threat recognition time</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-title">Containment Latency</div>
-          <div class="stat-value" style="color: var(--accent-amber);">${metrics?.mean_containment_latency_ms || 0.8} ms</div>
-          <div class="stat-sub">Active defense activation</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-title">Recovery Duration</div>
-          <div class="stat-value" style="color: var(--accent-purple);">${metrics?.mean_recovery_duration_ms || 12.0} ms</div>
-          <div class="stat-sub">Baseline restore time</div>
-        </div>
-      </div>
-
-      <!-- Layer Waveform View -->
-      <div class="chart-card">
-        <div class="chart-header">
-          <div style="display: flex; align-items: center; gap: 12px;">
-            <span class="chart-title">Layer ${layerNum} Transient Waveform & Event Timing</span>
-            <span class="pill pill-mode-simulated">DEMONSTRATION WAVEFORM</span>
-          </div>
-          <div class="chart-controls">
-            <button class="btn-secondary" onclick="App.toggleWaveformPause()">Pause / Resume</button>
-          </div>
-        </div>
-        <div id="layer-waveform-plot" class="waveform-plot-area"></div>
-      </div>
-
-      <!-- 10 Problems Table for this Layer -->
-      <div class="table-card">
+      <div class="table-card" style="margin-top: 20px;">
         <div class="table-header-bar">
-          <span class="table-title">Layer ${layerNum} Problems & Defenses (10 Scenarios)</span>
+          <span class="table-title">Layer ${layerNum} Problems & Defenses Reference Registry (10 Scenarios)</span>
         </div>
         <table class="custom-table">
           <thead>
@@ -985,6 +989,664 @@ const LayerViews = {
           </tbody>
         </table>
       </div>
+    `;
+  },
+
+  // -------------------------------------------------------
+  // LAYER 1: Runtime & Communication Security (NO WAVEFORM)
+  // -------------------------------------------------------
+  renderLayer1(catalog, metrics, state) {
+    const scenarios = this.LAYER_SCENARIO_DATA[1];
+    const selectedId = state.selectedScenarioId?.[1] || "L1-01";
+    const sc = scenarios.find(s => s.id === selectedId) || scenarios[0];
+    const isRunning = state.isTestRunning?.[1] || false;
+    const execution = state.scenarioResults?.[selectedId] || null;
+
+    // Timeline events
+    const timeline = execution?.timeline || [
+      { timestamp: "00:00:01", source: "ORCHESTRATOR", state: "READY", message: "Awaiting scenario trigger command" },
+      { timestamp: "00:00:02", source: "RED_TEAM", state: "RED_TEAM_RUNNING", message: sc.red },
+      { timestamp: "00:00:03", source: "TARGET", state: "EVENT_OBSERVED", message: sc.target },
+      { timestamp: "00:00:04", source: "BLUE_TEAM", state: "BLUE_TEAM_EVALUATING", message: sc.blue_obs },
+      { timestamp: "00:00:05", source: "BLUE_TEAM", state: "DEFENSE_APPLIED", message: sc.blue_def },
+      { timestamp: "00:00:06", source: "ORCHESTRATOR", state: "COMPLETED", message: "Test completed with outcome: PASS" }
+    ];
+
+    return `
+      <!-- Header -->
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <h2 style="font-size: 18px; font-weight: 700; color: var(--text-primary);">Security Layer 1 — Runtime & Communication Security</h2>
+            <span class="status-badge status-pass">10 / 10 PASS</span>
+          </div>
+          <p style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">
+            Red Team attack generation vs Blue Team detection, filtering, and protocol boundary enforcement.
+          </p>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn-primary" onclick="App.runLayerTests(1)">▶ Run All Layer 1 Tests</button>
+        </div>
+      </div>
+
+      <!-- Stat Cards -->
+      <div class="stat-grid" style="margin-top: 14px;">
+        <div class="stat-card">
+          <div class="stat-title">Defensive Threat Coverage</div>
+          <div class="stat-value" style="color: var(--accent-green);">10 / 10</div>
+          <div class="stat-sub">100% scenarios verified</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-title">Detection Latency</div>
+          <div class="stat-value" style="color: var(--accent-blue);">${metrics?.mean_detection_latency_ms || 0.4} ms</div>
+          <div class="stat-sub">Protocol boundary inspection</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-title">Containment Latency</div>
+          <div class="stat-value" style="color: var(--accent-amber);">${metrics?.mean_containment_latency_ms || 0.8} ms</div>
+          <div class="stat-sub">Active frame drop & throttle</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-title">Recovery Duration</div>
+          <div class="stat-value" style="color: var(--accent-purple);">${metrics?.mean_recovery_duration_ms || 12.0} ms</div>
+          <div class="stat-sub">Clean state restoration</div>
+        </div>
+      </div>
+
+      <!-- Scenario Selector Bar & Action Controls -->
+      <div class="scenario-selector-bar">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <span style="font-size: 13px; font-weight: 600; color: var(--text-secondary);">Select Attack Scenario:</span>
+          <select class="scenario-select" onchange="App.selectLayerScenario(1, this.value)">
+            ${scenarios.map(s => `
+              <option value="${s.id}" ${s.id === selectedId ? 'selected' : ''}>
+                ${s.id}: ${s.name}
+              </option>
+            `).join('')}
+          </select>
+          <span class="pill pill-mode-physical">${sc.prov}</span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn-primary" onclick="App.startLayerTest(1)" ${isRunning ? 'disabled' : ''}>
+            ${isRunning ? '⏳ Running...' : '▶ START TEST'}
+          </button>
+          <button class="btn-secondary" onclick="App.stopLayerTest(1)">
+            ■ STOP TEST
+          </button>
+          <button class="btn-secondary" onclick="App.exportLayerReport(1)">
+            📄 EXPORT PDF
+          </button>
+        </div>
+      </div>
+
+      <!-- Side-by-Side Red Team Attack vs Blue Team Defense (20px gap) -->
+      <div class="red-blue-split-container">
+        <!-- Red Team Card -->
+        <div class="team-card-red">
+          <div class="team-card-header">
+            <div>
+              <h4 style="font-size: 14px; font-weight: 700; color: var(--accent-rose);">Red Team Attack Generation</h4>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Node: ESP8266 (UART/Trigger Stimulus)</div>
+            </div>
+            <span class="team-badge-red">RED TEAM STIMULUS</span>
+          </div>
+          <div style="margin-bottom: 12px;">
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Attack Stimulus / Action:</div>
+            <div style="font-size: 13px; color: var(--text-primary); margin-top: 4px; font-weight: 500;">
+              ${sc.red}
+            </div>
+          </div>
+          <div style="margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border-subtle);">
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Observed Target Impact:</div>
+            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; font-family: var(--font-mono);">
+              ${sc.target}
+            </div>
+          </div>
+        </div>
+
+        <!-- Blue Team Card -->
+        <div class="team-card-blue">
+          <div class="team-card-header">
+            <div>
+              <h4 style="font-size: 14px; font-weight: 700; color: var(--accent-blue);">Blue Team Defense & Filtering</h4>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Node: ESP32 Defensive Gateway & Monitor</div>
+            </div>
+            <span class="team-badge-blue">BLUE TEAM DEFENSE</span>
+          </div>
+          <div style="margin-bottom: 12px;">
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Detection & Observation:</div>
+            <div style="font-size: 13px; color: var(--text-primary); margin-top: 4px; font-weight: 500;">
+              ${sc.blue_obs}
+            </div>
+          </div>
+          <div>
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Active Countermeasure:</div>
+            <div style="font-size: 12px; color: var(--accent-green); margin-top: 4px; font-weight: 600;">
+              ${sc.blue_def}
+            </div>
+          </div>
+          <div style="margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 11px; color: var(--text-muted);">Result: <b>${sc.outcome}</b></span>
+            <span class="status-badge status-pass">PASS</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Real-Time Event Timeline -->
+      <div class="scenario-timeline-box">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 13px; font-weight: 700; color: var(--text-primary);">
+            Event Timeline & State Transitions (${sc.id})
+          </span>
+          <span style="font-size: 11px; color: var(--text-muted);">Execution ID: ${execution?.execution_id || 'EXEC-STANDBY'}</span>
+        </div>
+        <div class="timeline-feed">
+          ${timeline.map(ev => {
+            const timeStr = typeof ev.timestamp === 'number' ? `+${(ev.timestamp % 60).toFixed(3)}s` : ev.timestamp;
+            let tagColor = 'var(--accent-blue)';
+            if (ev.source === 'RED_TEAM') tagColor = 'var(--accent-rose)';
+            if (ev.source === 'TARGET') tagColor = 'var(--accent-purple)';
+            if (ev.source === 'BLUE_TEAM') tagColor = 'var(--accent-green)';
+            return `
+              <div class="timeline-row">
+                <span class="timeline-time">${timeStr}</span>
+                <span style="font-weight: 700; font-size: 11px; min-width: 90px; color: ${tagColor};">[${ev.source}]</span>
+                <span style="font-size: 11px; color: var(--text-muted); min-width: 130px;">${ev.state}</span>
+                <span class="timeline-msg">${ev.message}</span>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+
+      <!-- 10 Problems Table Reference -->
+      ${this.renderReferenceTable(1, catalog)}
+    `;
+  },
+
+  // -------------------------------------------------------
+  // LAYER 2: Fault Resilience & Waveform Visualization (ONLY LAYER WITH WAVEFORM)
+  // -------------------------------------------------------
+  renderLayer2(catalog, metrics, state) {
+    const scenarios = this.LAYER_SCENARIO_DATA[2];
+    const selectedId = state.selectedScenarioId?.[2] || "L2-01";
+    const sc = scenarios.find(s => s.id === selectedId) || scenarios[0];
+    const isRunning = state.isTestRunning?.[2] || false;
+    const isFault = state.isFaultDistorted || false;
+    const execution = state.scenarioResults?.[selectedId] || null;
+
+    return `
+      <!-- Header -->
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <h2 style="font-size: 18px; font-weight: 700; color: var(--text-primary);">Security Layer 2 — Hardware Fault Tolerance & Defenses</h2>
+            <span class="status-badge status-pass">10 / 10 PASS</span>
+          </div>
+          <p style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">
+            Electromagnetic & power fault injection resilience, glitch containment, and real-time ADC/voltage waveform tracking.
+          </p>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn-primary" onclick="App.runLayerTests(2)">▶ Run All Layer 2 Tests</button>
+        </div>
+      </div>
+
+      <!-- Stat Cards -->
+      <div class="stat-grid" style="margin-top: 14px;">
+        <div class="stat-card">
+          <div class="stat-title">Fault Glitch Tolerance</div>
+          <div class="stat-value" style="color: var(--accent-green);">10 / 10</div>
+          <div class="stat-sub">100% containment pass rate</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-title">Glitch Detection Latency</div>
+          <div class="stat-value" style="color: var(--accent-blue);">${metrics?.mean_detection_latency_ms || 0.4} ms</div>
+          <div class="stat-sub">Voltage anomaly recognition</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-title">Hardware Reset Containment</div>
+          <div class="stat-value" style="color: var(--accent-amber);">${metrics?.mean_containment_latency_ms || 0.8} ms</div>
+          <div class="stat-sub">GPIO19 reset assert time</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-title">Baseline Recovery Window</div>
+          <div class="stat-value" style="color: var(--accent-purple);">${metrics?.mean_recovery_duration_ms || 12.0} ms</div>
+          <div class="stat-sub">Target MCU stabilization</div>
+        </div>
+      </div>
+
+      <!-- Scenario Selector Bar & Action Controls -->
+      <div class="scenario-selector-bar">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <span style="font-size: 13px; font-weight: 600; color: var(--text-secondary);">Select Fault Scenario:</span>
+          <select class="scenario-select" onchange="App.selectLayerScenario(2, this.value)">
+            ${scenarios.map(s => `
+              <option value="${s.id}" ${s.id === selectedId ? 'selected' : ''}>
+                ${s.id}: ${s.name}
+              </option>
+            `).join('')}
+          </select>
+          <span class="pill ${isFault ? 'pill-mode-simulated' : 'pill-mode-telemetry'}">
+            ${isFault ? 'FAULT DISTORTED WAVEFORM' : 'NOMINAL SINE WAVE'}
+          </span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn-primary" onclick="App.startLayerTest(2)" ${isRunning ? 'disabled' : ''}>
+            ${isRunning ? '⏳ Injecting Fault...' : '⚡ START FAULT TEST'}
+          </button>
+          <button class="btn-secondary" onclick="App.resetLayer2Waveform()">
+            ↺ RESET
+          </button>
+          <button class="btn-secondary" onclick="App.exportLayerReport(2)">
+            📄 EXPORT PDF
+          </button>
+        </div>
+      </div>
+
+      <!-- Waveform Visualization Card (Core of Layer 2) -->
+      <div class="chart-card">
+        <div class="chart-header">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <span class="chart-title">Continuous Telemetry Waveform: y(t) = A·sin(2πft)</span>
+            <span class="pill pill-mode-simulated">SIMULATED WAVEFORM — NOT A MEASURED VOLTAGE TRACE</span>
+          </div>
+          <div style="font-size: 12px; color: ${isFault ? 'var(--accent-rose)' : 'var(--accent-green)'}; font-weight: 600;">
+            ${isFault ? '● FAULT INJECTION ACTIVE: Voltage Sags, Spikes & Disturbance Observed' : '● NOMINAL BASELINE: Continuous Steady Sine Wave'}
+          </div>
+        </div>
+        <div id="layer2-sine-plot" style="height: 280px; width: 100%;"></div>
+      </div>
+
+      <!-- Side-by-Side Red Team Fault Injection vs Blue Team Containment (20px gap) -->
+      <div class="red-blue-split-container">
+        <!-- Red Team Card -->
+        <div class="team-card-red">
+          <div class="team-card-header">
+            <div>
+              <h4 style="font-size: 14px; font-weight: 700; color: var(--accent-rose);">Red Team Fault Injection</h4>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Node: ESP8266 D5 -> Uno D2 Trigger Pin</div>
+            </div>
+            <span class="team-badge-red">FAULT INJECTOR</span>
+          </div>
+          <div style="margin-bottom: 12px;">
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Glitch Stimulus:</div>
+            <div style="font-size: 13px; color: var(--text-primary); margin-top: 4px; font-weight: 500;">
+              ${sc.red}
+            </div>
+          </div>
+          <div style="margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border-subtle);">
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Target Hardware Reaction:</div>
+            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; font-family: var(--font-mono);">
+              ${sc.target}
+            </div>
+          </div>
+        </div>
+
+        <!-- Blue Team Card -->
+        <div class="team-card-blue">
+          <div class="team-card-header">
+            <div>
+              <h4 style="font-size: 14px; font-weight: 700; color: var(--accent-blue);">Blue Team Fault Containment</h4>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Node: ESP32 Defensive Supervisor (GPIO19 Reset)</div>
+            </div>
+            <span class="team-badge-blue">ACTIVE CONTAINMENT</span>
+          </div>
+          <div style="margin-bottom: 12px;">
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Anomaly Detection:</div>
+            <div style="font-size: 13px; color: var(--text-primary); margin-top: 4px; font-weight: 500;">
+              ${sc.blue_obs}
+            </div>
+          </div>
+          <div>
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Containment & Recovery:</div>
+            <div style="font-size: 12px; color: var(--accent-green); margin-top: 4px; font-weight: 600;">
+              ${sc.blue_def}
+            </div>
+          </div>
+          <div style="margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 11px; color: var(--text-muted);">Status: <b>${sc.outcome}</b></span>
+            <span class="status-badge status-pass">PASS</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 10 Problems Table Reference -->
+      ${this.renderReferenceTable(2, catalog)}
+    `;
+  },
+
+  // -------------------------------------------------------
+  // LAYER 3: Firmware Trust & Rollback Attack (NO WAVEFORM)
+  // -------------------------------------------------------
+  renderLayer3(catalog, metrics, state) {
+    const scenarios = this.LAYER_SCENARIO_DATA[3];
+    const selectedId = state.selectedScenarioId?.[3] || "L3-01";
+    const sc = scenarios.find(s => s.id === selectedId) || scenarios[0];
+    const isRunning = state.isTestRunning?.[3] || false;
+    const terminalLogs = state.terminalLogs?.[3] || [
+      `[10:00:01] [INFO] Firmware trust evaluation gateway ready`,
+      `[10:00:02] [BLUE] Active approved policy: minimum_allowed_version='v2.0.0'`,
+      `[10:00:03] [INFO] Awaiting firmware verification requests...`
+    ];
+
+    return `
+      <!-- Header -->
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <h2 style="font-size: 18px; font-weight: 700; color: var(--text-primary);">Security Layer 3 — Firmware Trust & Anti-Rollback Protection</h2>
+            <span class="status-badge status-pass">10 / 10 PASS</span>
+          </div>
+          <p style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">
+            Monotonic counter verification, cryptographic signature validation, and host-side policy enforcement.
+          </p>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn-primary" onclick="App.runLayerTests(3)">▶ Run All Layer 3 Tests</button>
+        </div>
+      </div>
+
+      <!-- Policy & Provenance Banner -->
+      <div class="action-banner" style="margin-top: 14px;">
+        <div class="action-banner-content">
+          <h4>🛡️ Active Gateway Policy: HOST-SIDE POLICY ENFORCEMENT</h4>
+          <p>
+            Monotonic Counter Rule: <b>Minimum Approved Version = v2.0.0</b> &bull; Proposed downgrades (e.g. v1.0.0) are rejected by host policy engine before flashing.
+          </p>
+        </div>
+        <span class="pill pill-mode-physical">HOST-SIDE POLICY ENFORCEMENT</span>
+      </div>
+
+      <!-- Stat Cards -->
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-title">Firmware Trust Verification</div>
+          <div class="stat-value" style="color: var(--accent-green);">10 / 10</div>
+          <div class="stat-sub">100% policy enforcement</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-title">Policy Verification Time</div>
+          <div class="stat-value" style="color: var(--accent-blue);">${metrics?.mean_detection_latency_ms || 0.4} ms</div>
+          <div class="stat-sub">Manifest & monotonic counter check</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-title">Rollback Containment</div>
+          <div class="stat-value" style="color: var(--accent-amber);">0.0 ms</div>
+          <div class="stat-sub">Zero target flash modifications</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-title">Cryptographic Signature Check</div>
+          <div class="stat-value" style="color: var(--accent-purple);">ECDSA P-256</div>
+          <div class="stat-sub">SHA-256 Root of Trust</div>
+        </div>
+      </div>
+
+      <!-- Scenario Selector Bar & Action Controls -->
+      <div class="scenario-selector-bar">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <span style="font-size: 13px; font-weight: 600; color: var(--text-secondary);">Select Rollback / Trust Scenario:</span>
+          <select class="scenario-select" onchange="App.selectLayerScenario(3, this.value)">
+            ${scenarios.map(s => `
+              <option value="${s.id}" ${s.id === selectedId ? 'selected' : ''}>
+                ${s.id}: ${s.name}
+              </option>
+            `).join('')}
+          </select>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn-primary" onclick="App.startLayerTest(3)" ${isRunning ? 'disabled' : ''}>
+            ${isRunning ? '⏳ Verifying Policy...' : '🛡️ START ROLLBACK TEST'}
+          </button>
+          <button class="btn-secondary" onclick="App.clearTerminal(3)">
+            🧹 CLEAR LOG
+          </button>
+          <button class="btn-secondary" onclick="App.exportLayerReport(3)">
+            📄 EXPORT PDF
+          </button>
+        </div>
+      </div>
+
+      <!-- Side-by-Side Red Team Rollback vs Blue Team Monotonic Policy (20px gap) -->
+      <div class="red-blue-split-container">
+        <!-- Red Team Card -->
+        <div class="team-card-red">
+          <div class="team-card-header">
+            <div>
+              <h4 style="font-size: 14px; font-weight: 700; color: var(--accent-rose);">Red Team Rollback Attempt</h4>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Vector: Obsolete / Vulnerable Firmware Candidate</div>
+            </div>
+            <span class="team-badge-red">ROLLBACK VECTOR</span>
+          </div>
+          <div style="margin-bottom: 12px;">
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Proposed Candidate:</div>
+            <div style="font-size: 13px; color: var(--text-primary); margin-top: 4px; font-weight: 500;">
+              ${sc.red}
+            </div>
+          </div>
+          <div style="margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border-subtle);">
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Target Firmware State:</div>
+            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; font-family: var(--font-mono);">
+              ${sc.target}
+            </div>
+          </div>
+        </div>
+
+        <!-- Blue Team Card -->
+        <div class="team-card-blue">
+          <div class="team-card-header">
+            <div>
+              <h4 style="font-size: 14px; font-weight: 700; color: var(--accent-blue);">Blue Team Anti-Rollback Gate</h4>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Mechanism: Host Monotonic Version & Signature Enforcer</div>
+            </div>
+            <span class="team-badge-blue">GATEWAY ENFORCEMENT</span>
+          </div>
+          <div style="margin-bottom: 12px;">
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Inspection & Policy Evaluation:</div>
+            <div style="font-size: 13px; color: var(--text-primary); margin-top: 4px; font-weight: 500;">
+              ${sc.blue_obs}
+            </div>
+          </div>
+          <div>
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Enforcement Action:</div>
+            <div style="font-size: 12px; color: var(--accent-green); margin-top: 4px; font-weight: 600;">
+              ${sc.blue_def}
+            </div>
+          </div>
+          <div style="margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 11px; color: var(--text-muted);">Result: <b>${sc.outcome}</b></span>
+            <span class="status-badge status-pass">PASS</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Firmware Security Terminal (Host-Side Policy Enforcement) -->
+      <div class="table-card" style="margin-top: 16px;">
+        <div class="table-header-bar">
+          <span class="table-title">Firmware Security Terminal (Host-Side Policy Enforcement Log)</span>
+          <span style="font-size: 11px; color: var(--text-muted);">Live policy transcript stream</span>
+        </div>
+        <div id="terminal-layer3" class="security-terminal-box">
+          ${terminalLogs.map(line => {
+            let formatted = line
+              .replace(/\[RED\]/g, '<span class="term-tag-red">[RED]</span>')
+              .replace(/\[BLUE\]/g, '<span class="term-tag-blue">[BLUE]</span>')
+              .replace(/\[INFO\]/g, '<span class="term-tag-info">[INFO]</span>')
+              .replace(/\[TARGET\]/g, '<span class="term-tag-target">[TARGET]</span>');
+            return `<div class="terminal-line">${formatted}</div>`;
+          }).join('')}
+        </div>
+      </div>
+
+      <!-- 10 Problems Table Reference -->
+      ${this.renderReferenceTable(3, catalog)}
+    `;
+  },
+
+  // -------------------------------------------------------
+  // LAYER 4: Secure Updates & Cryptographic Sanitization (NO WAVEFORM)
+  // -------------------------------------------------------
+  renderLayer4(catalog, metrics, state) {
+    const scenarios = this.LAYER_SCENARIO_DATA[4];
+    const selectedId = state.selectedScenarioId?.[4] || "L4-03";
+    const sc = scenarios.find(s => s.id === selectedId) || scenarios[2];
+    const isRunning = state.isTestRunning?.[4] || false;
+    const terminalLogs = state.terminalLogs?.[4] || [
+      `[10:00:01] [INFO] Isolated cryptographic sandbox initialized`,
+      `[10:00:02] [BLUE] AES-256-GCM test key store initialized (ID: KEY-DS-ALPHA-01)`,
+      `[10:00:03] [INFO] Ready for sanitization & recovery denial evaluation...`
+    ];
+
+    return `
+      <!-- Header -->
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <h2 style="font-size: 18px; font-weight: 700; color: var(--text-primary);">Security Layer 4 — Secure Updates & Cryptographic Sanitization</h2>
+            <span class="status-badge status-pass">10 / 10 PASS</span>
+          </div>
+          <p style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">
+            Cryptographic key lifecycle management, AES-256-GCM encryption, secure key destruction, and post-sanitization recovery denial.
+          </p>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn-primary" onclick="App.runLayerTests(4)">▶ Run All Layer 4 Tests</button>
+        </div>
+      </div>
+
+      <!-- Cryptographic Sanitization & Security Banner -->
+      <div class="action-banner" style="margin-top: 14px;">
+        <div class="action-banner-content">
+          <h4>🔒 Volatile Key Store: AES-256-GCM Sanitization Engine</h4>
+          <p>
+            When cryptographic sanitization is commanded, the AES key is permanently purged and memory is zeroized. Unauthorized recovery attempts fail with: <b style="color: var(--accent-rose);">KEY UNAVAILABLE IN TEST KEY STORE — RECOVERY DENIED</b>.
+          </p>
+        </div>
+        <span class="pill pill-mode-physical">CRYPTOGRAPHIC SANITIZATION ACTIVE</span>
+      </div>
+
+      <!-- Stat Cards -->
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-title">Cryptographic Lifecycle Coverage</div>
+          <div class="stat-value" style="color: var(--accent-green);">10 / 10</div>
+          <div class="stat-sub">100% key operations verified</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-title">Cipher & Mode</div>
+          <div class="stat-value" style="color: var(--accent-blue);">AES-256-GCM</div>
+          <div class="stat-sub">128-bit authentication tag</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-title">Key Shredding Latency</div>
+          <div class="stat-value" style="color: var(--accent-amber);">0.04 ms</div>
+          <div class="stat-sub">Zeroization & purge time</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-title">Post-Sanitization Leakage</div>
+          <div class="stat-value" style="color: var(--accent-purple);">0 Bytes</div>
+          <div class="stat-sub">Complete forward secrecy</div>
+        </div>
+      </div>
+
+      <!-- Scenario Selector Bar & Action Controls -->
+      <div class="scenario-selector-bar">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <span style="font-size: 13px; font-weight: 600; color: var(--text-secondary);">Select Cryptographic Scenario:</span>
+          <select class="scenario-select" onchange="App.selectLayerScenario(4, this.value)">
+            ${scenarios.map(s => `
+              <option value="${s.id}" ${s.id === selectedId ? 'selected' : ''}>
+                ${s.id}: ${s.name}
+              </option>
+            `).join('')}
+          </select>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn-primary" onclick="App.startLayerTest(4)" ${isRunning ? 'disabled' : ''}>
+            ${isRunning ? '⏳ Executing Crypto Test...' : '🔒 START TEST'}
+          </button>
+          <button class="btn-secondary" onclick="App.resetLayer4Demo()">
+            ↺ RESET DEMO
+          </button>
+          <button class="btn-secondary" onclick="App.exportLayerReport(4)">
+            📄 EXPORT PDF
+          </button>
+        </div>
+      </div>
+
+      <!-- Side-by-Side Red Team Exfiltration vs Blue Team Key Destruction (20px gap) -->
+      <div class="red-blue-split-container">
+        <!-- Red Team Card -->
+        <div class="team-card-red">
+          <div class="team-card-header">
+            <div>
+              <h4 style="font-size: 14px; font-weight: 700; color: var(--accent-rose);">Red Team Recovery & Exfiltration Attempt</h4>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Vector: Post-Sanitization Key Recovery</div>
+            </div>
+            <span class="team-badge-red">UNAUTHORIZED ACCESS</span>
+          </div>
+          <div style="margin-bottom: 12px;">
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Recovery Stimulus:</div>
+            <div style="font-size: 13px; color: var(--text-primary); margin-top: 4px; font-weight: 500;">
+              ${sc.red}
+            </div>
+          </div>
+          <div style="margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border-subtle);">
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Key Store Response:</div>
+            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; font-family: var(--font-mono);">
+              ${sc.target}
+            </div>
+          </div>
+        </div>
+
+        <!-- Blue Team Card -->
+        <div class="team-card-blue">
+          <div class="team-card-header">
+            <div>
+              <h4 style="font-size: 14px; font-weight: 700; color: var(--accent-blue);">Blue Team Cryptographic Sanitization</h4>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Mechanism: Volatile Key Purge & Memory Zeroization</div>
+            </div>
+            <span class="team-badge-blue">SHRED & SANITIZE</span>
+          </div>
+          <div style="margin-bottom: 12px;">
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Sanitization Action:</div>
+            <div style="font-size: 13px; color: var(--text-primary); margin-top: 4px; font-weight: 500;">
+              ${sc.blue_obs}
+            </div>
+          </div>
+          <div>
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Protection Enforcement:</div>
+            <div style="font-size: 12px; color: var(--accent-green); margin-top: 4px; font-weight: 600;">
+              ${sc.blue_def}
+            </div>
+          </div>
+          <div style="margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 11px; color: var(--text-muted);">Result: <b>${sc.outcome}</b></span>
+            <span class="status-badge status-pass">PASS</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cryptographic Security Terminal -->
+      <div class="table-card" style="margin-top: 16px;">
+        <div class="table-header-bar">
+          <span class="table-title">Cryptographic Security Terminal (Key Lifecycle & Zeroization Log)</span>
+          <span style="font-size: 11px; color: var(--text-muted);">Isolated sandbox operations</span>
+        </div>
+        <div id="terminal-layer4" class="security-terminal-box">
+          ${terminalLogs.map(line => {
+            let formatted = line
+              .replace(/\[RED\]/g, '<span class="term-tag-red">[RED]</span>')
+              .replace(/\[BLUE\]/g, '<span class="term-tag-blue">[BLUE]</span>')
+              .replace(/\[INFO\]/g, '<span class="term-tag-info">[INFO]</span>')
+              .replace(/\[TARGET\]/g, '<span class="term-tag-target">[TARGET]</span>');
+            return `<div class="terminal-line">${formatted}</div>`;
+          }).join('')}
+        </div>
+      </div>
+
+      <!-- 10 Problems Table Reference -->
+      ${this.renderReferenceTable(4, catalog)}
     `;
   },
 

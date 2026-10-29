@@ -20,6 +20,7 @@ import backend.tests.test_workflow_gate as t_gate
 import backend.tests.test_hardware_discovery as t_hw
 import backend.tests.test_layer_demo as t_demo
 import backend.tests.test_all_40_problems as t_all
+import backend.tests.test_layer_master as t_master
 
 def run_test_module(mod_name: str, mod):
     print(f"\n========================================================")
@@ -74,7 +75,8 @@ if __name__ == "__main__":
         ("Hardware Detection Gate & Workflow Pipeline", t_gate),
         ("Hardware Discovery, Health & Readiness Gate Unit Tests", t_hw),
         ("Security Layer Demo & Waveform Comparison", t_demo),
-        ("Comprehensive 40-Problem Campaign & Evidence Export", t_all)
+        ("Comprehensive 40-Problem Campaign & Evidence Export", t_all),
+        ("4-Layer Master Scenarios, Execution Engine & PDF Export", t_master)
     ]
 
     for name, module in suites:

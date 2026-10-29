@@ -21,6 +21,23 @@ const App = {
   selectedDemoLayer: 1,
   currentDemoResult: null,
   demoPhase: null,
+  selectedScenarioId: { 1: 'L1-01', 2: 'L2-01', 3: 'L3-01', 4: 'L4-03' },
+  scenarioResults: {},
+  isTestRunning: { 1: false, 2: false, 3: false, 4: false },
+  isFaultDistorted: false,
+  currentExecution: null,
+  terminalLogs: {
+    3: [
+      "[10:00:01] [INFO] Firmware trust evaluation gateway ready",
+      "[10:00:02] [BLUE] Active approved policy: minimum_allowed_version='v2.0.0'",
+      "[10:00:03] [INFO] Awaiting firmware verification requests..."
+    ],
+    4: [
+      "[10:00:01] [INFO] Isolated cryptographic sandbox initialized",
+      "[10:00:02] [BLUE] AES-256-GCM test key store initialized (ID: KEY-DS-ALPHA-01)",
+      "[10:00:03] [INFO] Ready for sanitization & recovery denial evaluation..."
+    ]
+  },
 
   async init() {
     this.setupTheme();
@@ -233,11 +250,22 @@ const App = {
       container.innerHTML = LayerViews.renderDeviceManager(this.systemStatus.hardware || {}, this.discoveredPorts);
     } else if (this.currentTab.startsWith('layer')) {
       const layerNum = parseInt(this.currentTab.replace('layer', ''));
-      container.innerHTML = LayerViews.renderLayerDetail(layerNum, this.catalog, this.layerMetrics[layerNum], this.recentEvents);
-      setTimeout(() => {
-        this.chartManager = new WaveformChartManager('layer-waveform-plot');
-        this.chartManager.initChart();
-      }, 50);
+      container.innerHTML = LayerViews.renderLayerDetail(layerNum, this.catalog, this.layerMetrics[layerNum], this.recentEvents, this);
+      if (layerNum === 2) {
+        setTimeout(() => {
+          WaveformChartManager.renderSineWaveformPlot('layer2-sine-plot', this.isFaultDistorted);
+        }, 50);
+      } else if (layerNum === 3) {
+        setTimeout(() => {
+          const term = document.getElementById('terminal-layer3');
+          if (term) term.scrollTop = term.scrollHeight;
+        }, 50);
+      } else if (layerNum === 4) {
+        setTimeout(() => {
+          const term = document.getElementById('terminal-layer4');
+          if (term) term.scrollTop = term.scrollHeight;
+        }, 50);
+      }
     } else if (this.currentTab === 'console') {
       container.innerHTML = LayerViews.renderConsole(this.catalog, this.gateStatus);
     } else if (this.currentTab === 'waveform-lab') {
@@ -666,6 +694,78 @@ const App = {
 
   handleCampaignCompleted(campaignData) {
     this.lastCampaign = campaignData;
+  },
+
+  selectLayerScenario(layerId, scenarioId) {
+    this.selectedScenarioId[layerId] = scenarioId;
+    this.renderCurrentTab();
+  },
+
+  async startLayerTest(layerId) {
+    const scenarioId = this.selectedScenarioId[layerId] || `L${layerId}-01`;
+    this.isTestRunning[layerId] = true;
+    if (layerId === 2) {
+      this.isFaultDistorted = true;
+    }
+    this.renderCurrentTab();
+
+    try {
+      const res = await fetch(this.apiUrl('/api/tests/start'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ layer_id: layerId, scenario_id: scenarioId })
+      });
+      const data = await res.json();
+      this.scenarioResults[scenarioId] = data;
+      this.currentExecution = data;
+      if (data.terminal_logs && (layerId === 3 || layerId === 4)) {
+        this.terminalLogs[layerId] = data.terminal_logs;
+      }
+      if (data.timeline && layerId === 1) {
+        this.recentEvents.push(...data.timeline);
+      }
+    } catch (e) {
+      console.error(`Layer ${layerId} test failed:`, e);
+    } finally {
+      this.isTestRunning[layerId] = false;
+      this.renderCurrentTab();
+    }
+  },
+
+  async stopLayerTest(layerId) {
+    if (this.currentExecution?.execution_id) {
+      try {
+        await fetch(this.apiUrl(`/api/tests/${this.currentExecution.execution_id}/stop`), { method: 'POST' });
+      } catch (e) {
+        console.error('Stop test error:', e);
+      }
+    }
+    this.isTestRunning[layerId] = false;
+    if (layerId === 2) this.isFaultDistorted = false;
+    this.renderCurrentTab();
+  },
+
+  resetLayer2Waveform() {
+    this.isFaultDistorted = false;
+    this.renderCurrentTab();
+  },
+
+  clearTerminal(layerId) {
+    this.terminalLogs[layerId] = [
+      `[${new Date().toTimeString().split(' ')[0]}] [INFO] Terminal log cleared by operator.`
+    ];
+    this.renderCurrentTab();
+  },
+
+  resetLayer4Demo() {
+    this.terminalLogs[4] = [
+      `[${new Date().toTimeString().split(' ')[0]}] [INFO] Cryptographic sandbox reset. Active keys zeroized.`
+    ];
+    this.renderCurrentTab();
+  },
+
+  exportLayerReport(layerId) {
+    window.open(this.apiUrl(`/api/reports/layer/${layerId}.pdf`), '_blank');
   },
 
   filterCatalog(query) {
