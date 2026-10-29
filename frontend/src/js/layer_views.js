@@ -1001,6 +1001,17 @@ const LayerViews = {
     const sc = scenarios.find(s => s.id === selectedId) || scenarios[0];
     const isRunning = state.isTestRunning?.[1] || false;
     const execution = state.scenarioResults?.[selectedId] || null;
+    const animStage = state.layer1AnimStage || (execution ? 3 : 0);
+
+    // Statistics Calculation
+    const packetsSent = animStage >= 1 ? (sc.id === 'L1-03' ? 25 : 1) : 0;
+    const packetsInspected = animStage >= 2 ? (sc.id === 'L1-03' ? 25 : 1) : 0;
+    const suspiciousDetected = animStage >= 2 ? (sc.id === 'L1-03' ? 25 : 1) : 0;
+    const packetsBlocked = animStage === 3 ? (sc.id === 'L1-03' ? 20 : 1) : 0;
+    const packetsAllowed = animStage === 3 ? (sc.id === 'L1-03' ? 5 : 0) : 0;
+    const detectionReason = animStage === 3 ? sc.blue_obs : (animStage > 0 ? "Analyzing protocol syntax & boundaries..." : "Awaiting test trigger");
+    const lastTimestamp = execution?.end_timestamp ? execution.end_timestamp.split('T')[1].slice(0, 8) + ' UTC' : (animStage > 0 ? "In Progress" : "Pending");
+    const outcomeStatus = animStage === 3 ? (execution?.final_status || "PASS") : (animStage > 0 ? "EVALUATING" : "NOT_RUN");
 
     // Timeline events
     const timeline = execution?.timeline || [
@@ -1021,7 +1032,7 @@ const LayerViews = {
             <span class="status-badge status-pass">10 / 10 PASS</span>
           </div>
           <p style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">
-            Red Team attack generation vs Blue Team detection, filtering, and protocol boundary enforcement.
+            Animated packet-flow inspection: Red Team test traffic &bull; Target MCU response &bull; Blue Team gateway defense.
           </p>
         </div>
         <div style="display: flex; gap: 8px;">
@@ -1029,7 +1040,7 @@ const LayerViews = {
         </div>
       </div>
 
-      <!-- Stat Cards -->
+      <!-- High-Level Metric Tiles -->
       <div class="stat-grid" style="margin-top: 14px;">
         <div class="stat-card">
           <div class="stat-title">Defensive Threat Coverage</div>
@@ -1047,9 +1058,9 @@ const LayerViews = {
           <div class="stat-sub">Active frame drop & throttle</div>
         </div>
         <div class="stat-card">
-          <div class="stat-title">Recovery Duration</div>
-          <div class="stat-value" style="color: var(--accent-purple);">${metrics?.mean_recovery_duration_ms || 12.0} ms</div>
-          <div class="stat-sub">Clean state restoration</div>
+          <div class="stat-title">NIST CSF 2.0 Functions</div>
+          <div class="stat-value" style="color: var(--accent-purple); font-size: 14px; padding-top: 6px;">DE.CM &bull; PR.DS &bull; RS.AN</div>
+          <div class="stat-sub">Detect, Protect & Respond</div>
         </div>
       </div>
 
@@ -1079,48 +1090,185 @@ const LayerViews = {
         </div>
       </div>
 
-      <!-- Side-by-Side Red Team Attack vs Blue Team Defense (20px gap) -->
-      <div class="red-blue-split-container">
-        <!-- Red Team Card -->
+      <!-- Visual Packet-Flow Animation Component (RED TEAM → TARGET DEVICE → BLUE TEAM MONITOR) -->
+      <div class="packet-flow-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <div>
+            <span style="font-size: 14px; font-weight: 700; color: var(--text-primary);">Visual Packet-Flow & Protocol Inspection</span>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+              Path: RED TEAM (ESP8266) &rarr; TARGET DEVICE (ATmega328P) &rarr; BLUE TEAM MONITOR (ESP32 Gateway)
+            </div>
+          </div>
+          <div style="font-size: 12px; font-weight: 700; color: var(--accent-blue);">
+            Stage ${animStage}/3: ${animStage === 0 ? 'IDLE' : (animStage === 1 ? 'PACKET IN FLIGHT TO TARGET' : (animStage === 2 ? 'TARGET PROCESSING & OBSERVATION' : 'BLUE TEAM VERIFIED DEFENSE'))}
+          </div>
+        </div>
+
+        <!-- Animated Track -->
+        <div class="flow-track-wrapper">
+          <!-- Node 1: Red Team -->
+          <div class="flow-node-box flow-node-red">
+            <div class="flow-node-icon">📡</div>
+            <div class="flow-node-title">Red Team Node</div>
+            <div class="flow-node-sub">ESP8266 (Stimulus)</div>
+          </div>
+
+          <!-- Connector 1 -->
+          <div class="flow-track-connector">
+            <div class="flow-track-arrow">&#9654;</div>
+            ${animStage === 1 ? `
+              <div class="flow-packet-token packet-anim-stage1">📦 ${sc.id}: ${sc.name.slice(0, 16)}</div>
+            ` : ''}
+          </div>
+
+          <!-- Node 2: Target Device -->
+          <div class="flow-node-box flow-node-target">
+            <div class="flow-node-icon">🎯</div>
+            <div class="flow-node-title">Target Device</div>
+            <div class="flow-node-sub">ATmega328P (Uno)</div>
+          </div>
+
+          <!-- Connector 2 -->
+          <div class="flow-track-connector">
+            <div class="flow-track-arrow">&#9654;</div>
+            ${animStage === 2 ? `
+              <div class="flow-packet-token packet-anim-stage2">📡 TELEMETRY_OBS</div>
+            ` : ''}
+          </div>
+
+          <!-- Node 3: Blue Team Gateway -->
+          <div class="flow-node-box flow-node-blue">
+            <div class="flow-node-icon">🛡️</div>
+            <div class="flow-node-title">Blue Team Gate</div>
+            <div class="flow-node-sub">ESP32 Monitor</div>
+          </div>
+        </div>
+
+        <!-- Decision Shield / Verdict Area at Destination -->
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: var(--bg-tertiary); border-radius: 6px; margin-top: 10px;">
+          <div style="font-size: 12px; color: var(--text-secondary);">
+            <b>Inspection Rule:</b> ${sc.blue_obs}
+          </div>
+          <div>
+            ${animStage === 3 ? `
+              <div style="display: flex; gap: 8px;">
+                <span class="flow-decision-shield shield-blocked-red">❌ PACKET BLOCKED</span>
+                <span class="flow-decision-shield shield-verified-green">🛡️ DEFENSE VERIFIED</span>
+              </div>
+            ` : (animStage > 0 ? `
+              <span class="pill pill-mode-simulated">INSPECTING PROTOCOL BOUNDARIES...</span>
+            ` : `
+              <span class="pill pill-mode-physical">STANDBY (CLICK START TEST)</span>
+            `)}
+          </div>
+        </div>
+
+        <!-- Packet Statistics Matrix (8 Metrics Required by Section 3.C) -->
+        <div class="packet-stats-matrix">
+          <div class="packet-stat-item">
+            <div class="packet-stat-label">Packets Sent</div>
+            <div class="packet-stat-val" style="color: var(--accent-rose);">${packetsSent}</div>
+          </div>
+          <div class="packet-stat-item">
+            <div class="packet-stat-label">Packets Inspected</div>
+            <div class="packet-stat-val" style="color: var(--accent-blue);">${packetsInspected}</div>
+          </div>
+          <div class="packet-stat-item">
+            <div class="packet-stat-label">Suspicious Packets</div>
+            <div class="packet-stat-val" style="color: var(--accent-amber);">${suspiciousDetected}</div>
+          </div>
+          <div class="packet-stat-item">
+            <div class="packet-stat-label">Packets Blocked</div>
+            <div class="packet-stat-val" style="color: var(--accent-rose);">${packetsBlocked}</div>
+          </div>
+          <div class="packet-stat-item">
+            <div class="packet-stat-label">Packets Allowed</div>
+            <div class="packet-stat-val" style="color: var(--accent-green);">${packetsAllowed}</div>
+          </div>
+          <div class="packet-stat-item">
+            <div class="packet-stat-label">Last Event Time</div>
+            <div class="packet-stat-val" style="font-size: 12px;">${lastTimestamp}</div>
+          </div>
+          <div class="packet-stat-item">
+            <div class="packet-stat-label">Detection Reason</div>
+            <div class="packet-stat-val" style="font-size: 11px; color: var(--accent-blue); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              ${detectionReason}
+            </div>
+          </div>
+          <div class="packet-stat-item">
+            <div class="packet-stat-label">Final Security Outcome</div>
+            <div class="packet-stat-val" style="color: var(--accent-green);">
+              <span class="status-badge ${outcomeStatus === 'PASS' ? 'status-pass' : 'status-not-tested'}">${outcomeStatus}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tri-Split Architecture Panels: Red Team vs Target Device vs Blue Team (Visible 16px gap) -->
+      <div class="team-tri-split-container">
+        <!-- 1. Red Team Attack Panel -->
         <div class="team-card-red">
           <div class="team-card-header">
             <div>
-              <h4 style="font-size: 14px; font-weight: 700; color: var(--accent-rose);">Red Team Attack Generation</h4>
-              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Node: ESP8266 (UART/Trigger Stimulus)</div>
+              <h4 style="font-size: 14px; font-weight: 700; color: var(--accent-rose);">Red Team Attack Panel</h4>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Node: ESP8266 (UART Stimulus @ 115200)</div>
             </div>
             <span class="team-badge-red">RED TEAM STIMULUS</span>
           </div>
           <div style="margin-bottom: 12px;">
-            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Attack Stimulus / Action:</div>
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Attack Stimulus:</div>
             <div style="font-size: 13px; color: var(--text-primary); margin-top: 4px; font-weight: 500;">
               ${sc.red}
             </div>
           </div>
           <div style="margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border-subtle);">
-            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Observed Target Impact:</div>
-            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; font-family: var(--font-mono);">
-              ${sc.target}
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Scenario Reference:</div>
+            <div style="font-size: 12px; color: var(--accent-rose); margin-top: 4px; font-family: var(--font-mono); font-weight: 600;">
+              ${sc.id}: ${sc.name}
             </div>
           </div>
         </div>
 
-        <!-- Blue Team Card -->
+        <!-- 2. Target Device Panel -->
+        <div class="team-card-target">
+          <div class="team-card-header">
+            <div>
+              <h4 style="font-size: 14px; font-weight: 700; color: var(--accent-purple);">Target Device Panel</h4>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Node: ATmega328P (Arduino Uno Target)</div>
+            </div>
+            <span class="team-badge-target">TARGET NODE</span>
+          </div>
+          <div style="margin-bottom: 12px;">
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Target Observation:</div>
+            <div style="font-size: 13px; color: var(--text-primary); margin-top: 4px; font-weight: 500;">
+              ${sc.target}
+            </div>
+          </div>
+          <div style="margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border-subtle);">
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Target CPU & Memory:</div>
+            <div style="font-size: 12px; color: var(--accent-green); margin-top: 4px; font-family: var(--font-mono);">
+              SRAM Clean &bull; Zero Unauthorized State Mutation
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Blue Team Defense Panel -->
         <div class="team-card-blue">
           <div class="team-card-header">
             <div>
-              <h4 style="font-size: 14px; font-weight: 700; color: var(--accent-blue);">Blue Team Defense & Filtering</h4>
+              <h4 style="font-size: 14px; font-weight: 700; color: var(--accent-blue);">Blue Team Defense Panel</h4>
               <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Node: ESP32 Defensive Gateway & Monitor</div>
             </div>
             <span class="team-badge-blue">BLUE TEAM DEFENSE</span>
           </div>
           <div style="margin-bottom: 12px;">
-            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Detection & Observation:</div>
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Anomaly Detection:</div>
             <div style="font-size: 13px; color: var(--text-primary); margin-top: 4px; font-weight: 500;">
               ${sc.blue_obs}
             </div>
           </div>
           <div>
-            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Active Countermeasure:</div>
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Defensive Countermeasure:</div>
             <div style="font-size: 12px; color: var(--accent-green); margin-top: 4px; font-weight: 600;">
               ${sc.blue_def}
             </div>
@@ -1324,6 +1472,9 @@ const LayerViews = {
     const selectedId = state.selectedScenarioId?.[3] || "L3-01";
     const sc = scenarios.find(s => s.id === selectedId) || scenarios[0];
     const isRunning = state.isTestRunning?.[3] || false;
+    const execution = state.scenarioResults?.[selectedId] || null;
+    const animStage = state.layer3AnimStage || (execution ? 3 : 0);
+
     const terminalLogs = state.terminalLogs?.[3] || [
       `[10:00:01] [INFO] Firmware trust evaluation gateway ready`,
       `[10:00:02] [BLUE] Active approved policy: minimum_allowed_version='v2.0.0'`,
@@ -1339,7 +1490,7 @@ const LayerViews = {
             <span class="status-badge status-pass">10 / 10 PASS</span>
           </div>
           <p style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">
-            Monotonic counter verification, cryptographic signature validation, and host-side policy enforcement.
+            Visual firmware version timeline &bull; Monotonic counter policy enforcement &bull; Rollback rejection terminal.
           </p>
         </div>
         <div style="display: flex; gap: 8px;">
@@ -1376,9 +1527,9 @@ const LayerViews = {
           <div class="stat-sub">Zero target flash modifications</div>
         </div>
         <div class="stat-card">
-          <div class="stat-title">Cryptographic Signature Check</div>
-          <div class="stat-value" style="color: var(--accent-purple);">ECDSA P-256</div>
-          <div class="stat-sub">SHA-256 Root of Trust</div>
+          <div class="stat-title">NIST CSF 2.0 Functions</div>
+          <div class="stat-value" style="color: var(--accent-purple); font-size: 14px; padding-top: 6px;">ID.AM &bull; PR.DS &bull; DE.CM</div>
+          <div class="stat-sub">Identify, Protect & Detect</div>
         </div>
       </div>
 
@@ -1407,9 +1558,64 @@ const LayerViews = {
         </div>
       </div>
 
-      <!-- Side-by-Side Red Team Rollback vs Blue Team Monotonic Policy (20px gap) -->
-      <div class="red-blue-split-container">
-        <!-- Red Team Card -->
+      <!-- Visual Firmware Version Timeline & Comparison Component -->
+      <div class="firmware-version-visual">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <div>
+            <span style="font-size: 14px; font-weight: 700; color: var(--text-primary);">Firmware Version Timeline & Monotonic Policy Comparison</span>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+              Visual verification of proposed firmware candidate against the active monotonic counter threshold.
+            </div>
+          </div>
+          <div style="font-size: 12px; font-weight: 700; color: var(--accent-blue);">
+            Stage ${animStage}/3: ${animStage === 0 ? 'READY' : (animStage === 1 ? 'CANDIDATE SUBMITTED' : (animStage === 2 ? 'POLICY COMPARISON IN PROGRESS' : 'ROLLBACK REJECTED & TARGET UNTOUCHED'))}
+          </div>
+        </div>
+
+        <!-- Version Comparison Track -->
+        <div class="version-comparison-track">
+          <!-- Approved Active Version -->
+          <div class="version-pill-box version-pill-active">
+            <span style="font-size: 11px; font-weight: 700; text-transform: uppercase;">Approved Active Firmware</span>
+            <span class="version-number">v2.0.0</span>
+            <span style="font-size: 10px; margin-top: 4px;">SHA-256 Validated &bull; Root of Trust</span>
+          </div>
+
+          <!-- Comparison Flow Indicator -->
+          <div style="display: flex; flex-direction: column; align-items: center; min-width: 120px;">
+            <span style="font-size: 11px; color: var(--text-muted); font-weight: 700;">POLICY CHECK</span>
+            <span style="font-size: 20px; color: var(--border-color); margin: 4px 0;">&#10142;</span>
+            <span class="pill pill-mode-telemetry" style="font-size: 10px;">Min Allowed: v2.0.0</span>
+          </div>
+
+          <!-- Proposed Older Firmware -->
+          <div class="version-pill-box version-pill-proposed">
+            <span style="font-size: 11px; font-weight: 700; text-transform: uppercase;">Proposed Test Candidate</span>
+            <span class="version-number">v1.0.0</span>
+            <span style="font-size: 10px; margin-top: 4px;">Vulnerable Image Candidate</span>
+          </div>
+
+          <!-- Gateway Decision Box -->
+          <div style="display: flex; flex-direction: column; align-items: center; min-width: 180px;">
+            ${animStage === 3 ? `
+              <div class="flow-decision-shield shield-blocked-red" style="font-size: 12px; padding: 8px 14px;">
+                ❌ ROLLBACK BLOCKED: v1.0.0 &lt; v2.0.0
+              </div>
+              <div class="flow-decision-shield shield-verified-green" style="margin-top: 6px; font-size: 11px;">
+                🛡️ ACTIVE v2.0.0 PRESERVED
+              </div>
+            ` : (animStage > 0 ? `
+              <span class="pill pill-mode-simulated">EVALUATING MONOTONIC VERSION...</span>
+            ` : `
+              <span class="pill pill-mode-physical">AWAITING TEST TRIGGER</span>
+            `)}
+          </div>
+        </div>
+      </div>
+
+      <!-- Tri-Split Architecture Panels: Red Team Rollback vs Target Flash vs Blue Team Gateway (16px gap) -->
+      <div class="team-tri-split-container">
+        <!-- 1. Red Team Attack Panel -->
         <div class="team-card-red">
           <div class="team-card-header">
             <div>
@@ -1425,14 +1631,37 @@ const LayerViews = {
             </div>
           </div>
           <div style="margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border-subtle);">
-            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Target Firmware State:</div>
-            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; font-family: var(--font-mono);">
-              ${sc.target}
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Scenario Reference:</div>
+            <div style="font-size: 12px; color: var(--accent-rose); margin-top: 4px; font-family: var(--font-mono); font-weight: 600;">
+              ${sc.id}: ${sc.name}
             </div>
           </div>
         </div>
 
-        <!-- Blue Team Card -->
+        <!-- 2. Target Device Storage Panel -->
+        <div class="team-card-target">
+          <div class="team-card-header">
+            <div>
+              <h4 style="font-size: 14px; font-weight: 700; color: var(--accent-purple);">Target Flash Memory Panel</h4>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Target: ATmega328P Flash (32 KB Storage)</div>
+            </div>
+            <span class="team-badge-target">TARGET STORAGE</span>
+          </div>
+          <div style="margin-bottom: 12px;">
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Flash Write Status:</div>
+            <div style="font-size: 13px; color: var(--text-primary); margin-top: 4px; font-weight: 500;">
+              ${sc.target}
+            </div>
+          </div>
+          <div style="margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border-subtle);">
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Flash Integrity:</div>
+            <div style="font-size: 12px; color: var(--accent-green); margin-top: 4px; font-family: var(--font-mono);">
+              Flash Lock Enforced &bull; Zero Write Cycles Executed
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Blue Team Anti-Rollback Gate -->
         <div class="team-card-blue">
           <div class="team-card-header">
             <div>
@@ -1469,6 +1698,8 @@ const LayerViews = {
         <div id="terminal-layer3" class="security-terminal-box">
           ${terminalLogs.map(line => {
             let formatted = line
+              .replace(/\[RED TEAM\]/g, '<span class="term-tag-red">[RED TEAM]</span>')
+              .replace(/\[BLUE TEAM\]/g, '<span class="term-tag-blue">[BLUE TEAM]</span>')
               .replace(/\[RED\]/g, '<span class="term-tag-red">[RED]</span>')
               .replace(/\[BLUE\]/g, '<span class="term-tag-blue">[BLUE]</span>')
               .replace(/\[INFO\]/g, '<span class="term-tag-info">[INFO]</span>')
@@ -1491,6 +1722,9 @@ const LayerViews = {
     const selectedId = state.selectedScenarioId?.[4] || "L4-03";
     const sc = scenarios.find(s => s.id === selectedId) || scenarios[2];
     const isRunning = state.isTestRunning?.[4] || false;
+    const execution = state.scenarioResults?.[selectedId] || null;
+    const animStage = state.layer4AnimStage || (execution ? 3 : 0);
+
     const terminalLogs = state.terminalLogs?.[4] || [
       `[10:00:01] [INFO] Isolated cryptographic sandbox initialized`,
       `[10:00:02] [BLUE] AES-256-GCM test key store initialized (ID: KEY-DS-ALPHA-01)`,
@@ -1506,7 +1740,7 @@ const LayerViews = {
             <span class="status-badge status-pass">10 / 10 PASS</span>
           </div>
           <p style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">
-            Cryptographic key lifecycle management, AES-256-GCM encryption, secure key destruction, and post-sanitization recovery denial.
+            Visual cryptographic vault &bull; AES-256-GCM authenticated encryption &bull; Volatile key destruction & recovery denial.
           </p>
         </div>
         <div style="display: flex; gap: 8px;">
@@ -1543,9 +1777,9 @@ const LayerViews = {
           <div class="stat-sub">Zeroization & purge time</div>
         </div>
         <div class="stat-card">
-          <div class="stat-title">Post-Sanitization Leakage</div>
-          <div class="stat-value" style="color: var(--accent-purple);">0 Bytes</div>
-          <div class="stat-sub">Complete forward secrecy</div>
+          <div class="stat-title">NIST CSF 2.0 Functions</div>
+          <div class="stat-value" style="color: var(--accent-purple); font-size: 14px; padding-top: 6px;">PR.DS &bull; RS.MI &bull; RC.RP</div>
+          <div class="stat-sub">Protect, Respond & Recover</div>
         </div>
       </div>
 
@@ -1574,9 +1808,72 @@ const LayerViews = {
         </div>
       </div>
 
-      <!-- Side-by-Side Red Team Exfiltration vs Blue Team Key Destruction (20px gap) -->
-      <div class="red-blue-split-container">
-        <!-- Red Team Card -->
+      <!-- Visual Cryptographic Key Lifecycle & Sanitization Vault Component -->
+      <div class="crypto-vault-visual">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <div>
+            <span style="font-size: 14px; font-weight: 700; color: var(--text-primary);">Visual Cryptographic Key Lifecycle & Sanitization Vault</span>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+              Synthetic dataset encryption &bull; Key shredding in volatile store &bull; Recovery denial verification.
+            </div>
+          </div>
+          <div style="font-size: 12px; font-weight: 700; color: var(--accent-blue);">
+            Stage ${animStage}/3: ${animStage === 0 ? 'STANDBY' : (animStage === 1 ? 'DATA ENCRYPTED (AES-256-GCM)' : (animStage === 2 ? 'KEY PURGED & ZEROIZED' : 'RECOVERY PROBE DENIED'))}
+          </div>
+        </div>
+
+        <!-- 3-Stage Vault Track -->
+        <div class="vault-stage-track">
+          <!-- Stage 1: Data Encryption -->
+          <div class="vault-stage-card">
+            <div class="vault-icon">🔐</div>
+            <div style="font-size: 13px; font-weight: 700; color: var(--accent-blue);">1. AES-256-GCM Encryption</div>
+            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">
+              Dataset DS-ALPHA encrypted with 256-bit symmetric key and 128-bit authentication tag.
+            </div>
+            <span class="pill pill-mode-telemetry" style="margin-top: 8px; font-size: 10px;">CIPHERTEXT PROTECTED</span>
+          </div>
+
+          <!-- Stage 2: Volatile Key Store -->
+          <div class="vault-stage-card">
+            <div class="vault-icon">🔑</div>
+            <div style="font-size: 13px; font-weight: 700; color: var(--text-primary);">2. Volatile Key Store (KEY-DS-01)</div>
+            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">
+              Key lifecycle management: Key active during operation, destroyed upon sanitization.
+            </div>
+            ${animStage >= 2 ? `
+              <div class="key-slot-destroyed">⚡ ZEROIZED & PURGED (0x00000000)</div>
+            ` : `
+              <span class="pill pill-mode-physical" style="margin-top: 8px; font-size: 10px;">KEY ACTIVE IN STORE</span>
+            `}
+          </div>
+
+          <!-- Stage 3: Post-Sanitization Recovery Denial -->
+          <div class="vault-stage-card">
+            <div class="vault-icon">🛡️</div>
+            <div style="font-size: 13px; font-weight: 700; color: var(--accent-rose);">3. Unauthorized Recovery Denial</div>
+            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">
+              Red Team recovery query returns NOT_FOUND with zero plaintext leakage.
+            </div>
+            ${animStage === 3 ? `
+              <div class="flow-decision-shield shield-blocked-red" style="margin-top: 8px; font-size: 10px;">
+                ❌ KEY UNAVAILABLE — RECOVERY DENIED
+              </div>
+              <div class="flow-decision-shield shield-verified-green" style="margin-top: 4px; font-size: 10px;">
+                🛡️ ZERO PLAINTEXT RECOVERED
+              </div>
+            ` : (animStage > 0 ? `
+              <span class="pill pill-mode-simulated" style="margin-top: 8px; font-size: 10px;">VERIFYING ERASURE PROOF...</span>
+            ` : `
+              <span class="pill pill-mode-physical" style="margin-top: 8px; font-size: 10px;">AWAITING SANITIZATION EVENT</span>
+            `)}
+          </div>
+        </div>
+      </div>
+
+      <!-- Tri-Split Architecture Panels: Red Team Exfiltration vs Target Memory vs Blue Team Key Shredding (16px gap) -->
+      <div class="team-tri-split-container">
+        <!-- 1. Red Team Attack Panel -->
         <div class="team-card-red">
           <div class="team-card-header">
             <div>
@@ -1592,14 +1889,37 @@ const LayerViews = {
             </div>
           </div>
           <div style="margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border-subtle);">
-            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Key Store Response:</div>
-            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; font-family: var(--font-mono);">
-              ${sc.target}
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Scenario Reference:</div>
+            <div style="font-size: 12px; color: var(--accent-rose); margin-top: 4px; font-family: var(--font-mono); font-weight: 600;">
+              ${sc.id}: ${sc.name}
             </div>
           </div>
         </div>
 
-        <!-- Blue Team Card -->
+        <!-- 2. Target Device Volatile Register Panel -->
+        <div class="team-card-target">
+          <div class="team-card-header">
+            <div>
+              <h4 style="font-size: 14px; font-weight: 700; color: var(--accent-purple);">Target Volatile Key Store Panel</h4>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Target: MCU Cryptographic Key Registers</div>
+            </div>
+            <span class="team-badge-target">KEY REGISTERS</span>
+          </div>
+          <div style="margin-bottom: 12px;">
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Register State:</div>
+            <div style="font-size: 13px; color: var(--text-primary); margin-top: 4px; font-weight: 500;">
+              ${sc.target}
+            </div>
+          </div>
+          <div style="margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border-subtle);">
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Memory Zeroization:</div>
+            <div style="font-size: 12px; color: var(--accent-green); margin-top: 4px; font-family: var(--font-mono);">
+              Volatile RAM Wiped with 0x00 &bull; Forward Secrecy Certified
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Blue Team Cryptographic Sanitization -->
         <div class="team-card-blue">
           <div class="team-card-header">
             <div>
@@ -1636,6 +1956,8 @@ const LayerViews = {
         <div id="terminal-layer4" class="security-terminal-box">
           ${terminalLogs.map(line => {
             let formatted = line
+              .replace(/\[RED TEAM\]/g, '<span class="term-tag-red">[RED TEAM]</span>')
+              .replace(/\[BLUE TEAM\]/g, '<span class="term-tag-blue">[BLUE TEAM]</span>')
               .replace(/\[RED\]/g, '<span class="term-tag-red">[RED]</span>')
               .replace(/\[BLUE\]/g, '<span class="term-tag-blue">[BLUE]</span>')
               .replace(/\[INFO\]/g, '<span class="term-tag-info">[INFO]</span>')

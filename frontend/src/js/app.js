@@ -25,6 +25,9 @@ const App = {
   scenarioResults: {},
   isTestRunning: { 1: false, 2: false, 3: false, 4: false },
   isFaultDistorted: false,
+  layer1AnimStage: 0,
+  layer3AnimStage: 0,
+  layer4AnimStage: 0,
   currentExecution: null,
   terminalLogs: {
     3: [
@@ -698,6 +701,9 @@ const App = {
 
   selectLayerScenario(layerId, scenarioId) {
     this.selectedScenarioId[layerId] = scenarioId;
+    if (layerId === 1) this.layer1AnimStage = 0;
+    if (layerId === 3) this.layer3AnimStage = 0;
+    if (layerId === 4) this.layer4AnimStage = 0;
     this.renderCurrentTab();
   },
 
@@ -707,7 +713,22 @@ const App = {
     if (layerId === 2) {
       this.isFaultDistorted = true;
     }
+
+    // Stage 1: Initiation / Red Team Transmission
+    if (layerId === 1) this.layer1AnimStage = 1;
+    if (layerId === 3) this.layer3AnimStage = 1;
+    if (layerId === 4) this.layer4AnimStage = 1;
     this.renderCurrentTab();
+
+    // Stage 2: Target Reception & Inspection (pause for visual comprehension)
+    await new Promise(r => setTimeout(r, 600));
+    if (layerId === 1) this.layer1AnimStage = 2;
+    if (layerId === 3) this.layer3AnimStage = 2;
+    if (layerId === 4) this.layer4AnimStage = 2;
+    this.renderCurrentTab();
+
+    // Stage 3: Blue Team Policy Enforcement & Verdict
+    await new Promise(r => setTimeout(r, 600));
 
     try {
       const res = await fetch(this.apiUrl('/api/tests/start'), {
@@ -718,6 +739,9 @@ const App = {
       const data = await res.json();
       this.scenarioResults[scenarioId] = data;
       this.currentExecution = data;
+      if (layerId === 1) this.layer1AnimStage = 3;
+      if (layerId === 3) this.layer3AnimStage = 3;
+      if (layerId === 4) this.layer4AnimStage = 3;
       if (data.terminal_logs && (layerId === 3 || layerId === 4)) {
         this.terminalLogs[layerId] = data.terminal_logs;
       }
@@ -741,7 +765,10 @@ const App = {
       }
     }
     this.isTestRunning[layerId] = false;
+    if (layerId === 1) this.layer1AnimStage = 0;
     if (layerId === 2) this.isFaultDistorted = false;
+    if (layerId === 3) this.layer3AnimStage = 0;
+    if (layerId === 4) this.layer4AnimStage = 0;
     this.renderCurrentTab();
   },
 
@@ -754,6 +781,7 @@ const App = {
     this.terminalLogs[layerId] = [
       `[${new Date().toTimeString().split(' ')[0]}] [INFO] Terminal log cleared by operator.`
     ];
+    if (layerId === 3) this.layer3AnimStage = 0;
     this.renderCurrentTab();
   },
 
@@ -761,6 +789,7 @@ const App = {
     this.terminalLogs[4] = [
       `[${new Date().toTimeString().split(' ')[0]}] [INFO] Cryptographic sandbox reset. Active keys zeroized.`
     ];
+    this.layer4AnimStage = 0;
     this.renderCurrentTab();
   },
 

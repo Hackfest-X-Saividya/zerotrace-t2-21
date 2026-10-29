@@ -876,3 +876,355 @@ body {
   flex: 1;
 }
 
+/* =========================================================
+   Visual Packet Flow Animation System (Layer 1)
+   ========================================================= */
+.packet-flow-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 18px;
+  margin-top: 14px;
+  margin-bottom: 16px;
+}
+
+.flow-track-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 30px 20px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  margin: 14px 0;
+  overflow: hidden;
+}
+
+.flow-node-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  z-index: 2;
+  width: 140px;
+}
+
+.flow-node-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  margin-bottom: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  transition: all 0.3s ease;
+}
+
+.flow-node-red .flow-node-icon {
+  background: rgba(244, 63, 94, 0.15);
+  border: 2px solid var(--accent-rose);
+  color: var(--accent-rose);
+}
+
+.flow-node-target .flow-node-icon {
+  background: rgba(168, 85, 247, 0.15);
+  border: 2px solid var(--accent-purple);
+  color: var(--accent-purple);
+}
+
+.flow-node-blue .flow-node-icon {
+  background: rgba(56, 189, 248, 0.15);
+  border: 2px solid var(--accent-blue);
+  color: var(--accent-blue);
+}
+
+.flow-node-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.flow-node-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  font-family: var(--font-mono);
+}
+
+.flow-track-connector {
+  flex: 1;
+  height: 4px;
+  background: var(--border-color);
+  position: relative;
+  margin: 0 10px;
+  border-radius: 2px;
+}
+
+.flow-track-arrow {
+  position: absolute;
+  right: 0;
+  top: -6px;
+  color: var(--border-color);
+  font-size: 12px;
+}
+
+/* Animated Packet */
+.flow-packet-token {
+  position: absolute;
+  top: -12px;
+  background: var(--accent-amber);
+  color: #000;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 12px;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.6);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+  z-index: 3;
+}
+
+@keyframes travelRedToTarget {
+  0% { left: 10%; opacity: 0; transform: scale(0.8); }
+  15% { opacity: 1; transform: scale(1); }
+  85% { opacity: 1; transform: scale(1); }
+  100% { left: 45%; opacity: 0; transform: scale(0.8); }
+}
+
+@keyframes travelTargetToBlue {
+  0% { left: 52%; opacity: 0; transform: scale(0.8); }
+  15% { opacity: 1; transform: scale(1); }
+  85% { opacity: 1; transform: scale(1); }
+  100% { left: 88%; opacity: 0; transform: scale(0.8); }
+}
+
+.packet-anim-stage1 {
+  animation: travelRedToTarget 1.2s ease-in-out infinite;
+}
+
+.packet-anim-stage2 {
+  animation: travelTargetToBlue 1.2s ease-in-out infinite;
+}
+
+/* Decision Shield / Rejection Badge */
+.flow-decision-shield {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.shield-verified-green {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--accent-green);
+  border: 1px solid var(--accent-green);
+}
+
+.shield-blocked-red {
+  background: rgba(244, 63, 94, 0.15);
+  color: var(--accent-rose);
+  border: 1px solid var(--accent-rose);
+}
+
+@keyframes popIn {
+  0% { transform: scale(0.7); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* Statistics Matrix (8 Metrics) */
+.packet-stats-matrix {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-top: 14px;
+}
+
+@media (max-width: 900px) {
+  .packet-stats-matrix {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.packet-stat-item {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.packet-stat-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.packet-stat-val {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+/* Tri-Split Container for Red, Target, Blue */
+.team-tri-split-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+  margin-top: 16px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 992px) {
+  .team-tri-split-container {
+    grid-template-columns: 1fr;
+  }
+}
+
+.team-card-target {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-left: 4px solid var(--accent-purple);
+  border-radius: 8px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+.team-badge-target {
+  background: rgba(168, 85, 247, 0.15);
+  color: var(--accent-purple);
+  font-weight: 700;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+
+/* =========================================================
+   Visual Firmware Version Timeline (Layer 3)
+   ========================================================= */
+.firmware-version-visual {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 20px;
+  margin-top: 14px;
+  margin-bottom: 16px;
+}
+
+.version-comparison-track {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 24px 16px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  margin: 14px 0;
+  position: relative;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.version-pill-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 12px 18px;
+  border-radius: 8px;
+  min-width: 130px;
+}
+
+.version-pill-active {
+  background: rgba(16, 185, 129, 0.15);
+  border: 2px solid var(--accent-green);
+  color: var(--accent-green);
+}
+
+.version-pill-proposed {
+  background: rgba(244, 63, 94, 0.15);
+  border: 2px dashed var(--accent-rose);
+  color: var(--accent-rose);
+}
+
+.version-pill-policy {
+  background: rgba(56, 189, 248, 0.15);
+  border: 2px solid var(--accent-blue);
+  color: var(--accent-blue);
+}
+
+.version-number {
+  font-size: 18px;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  margin-top: 4px;
+}
+
+/* =========================================================
+   Visual Cryptographic Sanitization & Vault (Layer 4)
+   ========================================================= */
+.crypto-vault-visual {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 20px;
+  margin-top: 14px;
+  margin-bottom: 16px;
+}
+
+.vault-stage-track {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin: 14px 0;
+}
+
+@media (max-width: 850px) {
+  .vault-stage-track {
+    grid-template-columns: 1fr;
+  }
+}
+
+.vault-stage-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.vault-icon {
+  font-size: 26px;
+  margin-bottom: 8px;
+}
+
+.key-slot-destroyed {
+  background: rgba(244, 63, 94, 0.1);
+  border: 1px solid var(--accent-rose);
+  color: var(--accent-rose);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 6px 12px;
+  border-radius: 4px;
+  margin-top: 8px;
+  font-weight: 700;
+}
+
+
