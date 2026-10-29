@@ -395,3 +395,4 @@ class LayerReportGenerator:
             path = LayerReportGenerator.generate_layer_report(layer_id)
             reports[layer_id] = path
         return reports
+
