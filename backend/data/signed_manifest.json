@@ -1,0 +1,19 @@
+{
+  "manifest_version": "2.0.0",
+  "issuer": "ZeroTrace Root Authority CA-01",
+  "target_hardware": {
+    "esp32_blue_team": {
+      "image_name": "ZT_SECURE_BOOT_BLOB_V2",
+      "size_bytes": 128,
+      "expected_sha256": "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a",
+      "signature_algorithm": "HMAC-SHA256",
+      "rollback_version": 200
+    },
+    "arduino_uno_target": {
+      "flash_start": "0x0000",
+      "flash_size_bytes": 4096,
+      "expected_crc32": "0x4A8F91B2"
+    }
+  }
+}
+

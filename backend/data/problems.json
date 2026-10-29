@@ -1,0 +1,677 @@
+[
+  {
+    "problem_id": "SEC-L1-01",
+    "layer": 1,
+    "title": "Firmware Package Authenticity & Untrusted Origin Rejection",
+    "attack": "Attacker uploads forged firmware signed by an untrusted or arbitrary self-signed key, attempting remote code execution.",
+    "observable": "Ensure only authorized firmware images signed by a trusted certificate authority can be staged or installed.",
+    "defense": "Root-of-Trust verification chain validating issuer signatures against on-device trust anchors stored in protected memory.",
+    "metric": "test_l1_01_untrusted_origin",
+    "threshold_source": "SHA-256 / CRC-32 Digest Equality (100% Match)",
+    "provenance": "MEASURED",
+    "implemented": true,
+    "citations": [
+      "Fanjas et al. (DFT 2023) Sec. III",
+      "Luo et al. (IEEE IoT 2022) Sec. V-C"
+    ],
+    "notes": "Requires hardware-backed public key in eFuse/ROM for absolute root-of-trust; software fallback validates against immutable keystore."
+  },
+  {
+    "problem_id": "SEC-L1-02",
+    "layer": 1,
+    "title": "Payload Tampering & Cryptographic Hash Verification Failure",
+    "attack": "Attacker modifies binary bytes (e.g. flipping privilege flags or patching jump addresses) during transport or in staging memory.",
+    "observable": "Detect any unauthorized modification, corruption, or injection within the firmware binary.",
+    "defense": "Cryptographic SHA-256 digest recalculation and comparison against the manifest hash prior to flash programming.",
+    "metric": "test_l1_02_payload_tamper",
+    "threshold_source": "SHA-256 / CRC-32 Digest Equality (100% Match)",
+    "provenance": "MEASURED",
+    "implemented": true,
+    "citations": [
+      "Fanjas et al. (DFT 2023) Sec. III-C",
+      "Luo et al. (IEEE IoT 2022) Sec. V-C"
+    ],
+    "notes": "Hash checking is computationally bounded on 8-bit MCUs (ATmega328P); offloaded to hardware cryptoaccelerator on SAM L11 / ESP32."
+  },
+  {
+    "problem_id": "SEC-L1-03",
+    "layer": 1,
+    "title": "Signature Validation Failure (Fanjas V3 Certificate 0 Model)",
+    "attack": "Fault injection or algorithmic flaw bypasses certificate signature checking, accepting an invalid certificate 0.",
+    "observable": "Reject packages where the cryptographic digital signature does not mathematically verify against the payload hash.",
+    "defense": "Constant-time RSA/ECDSA signature verification with dual-check status enforcement and explicit error trapping.",
+    "metric": "test_l1_03_signature_failure",
+    "threshold_source": "SHA-256 / CRC-32 Digest Equality (100% Match)",
+    "provenance": "PARTIAL",
+    "implemented": true,
+    "citations": [
+      "Fanjas et al. (DFT 2023) Sec. IV-A & V-B",
+      "Wiersma & Pareja (FDTC 2017) Sec. II"
+    ],
+    "notes": "Pure software signature verification is vulnerable to precise clock/EM glitches unless implemented with complementary condition branches."
+  },
+  {
+    "problem_id": "SEC-L1-04",
+    "layer": 1,
+    "title": "Replay of Stale Valid Update Request",
+    "attack": "Attacker captures legitimate firmware update transmission and replays it over the network or bus at a later date.",
+    "observable": "Prevent adversaries from re-transmitting previously authorized update payloads to induce state desynchronization.",
+    "defense": "Monotonic transaction nonce and session-bound timestamp challenge verification on update start handshake.",
+    "metric": "test_l1_04_replay_attack",
+    "threshold_source": "SHA-256 / CRC-32 Digest Equality (100% Match)",
+    "provenance": "PARTIAL",
+    "implemented": true,
+    "citations": [
+      "Luo et al. (IEEE IoT 2022) Table I",
+      "Sensors (2023)"
+    ],
+    "notes": "Requires real-time clock or monotonically increasing state counter preserved across power loss."
+  },
+  {
+    "problem_id": "SEC-L1-05",
+    "layer": 1,
+    "title": "Firmware Downgrade & Anti-Rollback Policy Enforcement",
+    "attack": "Attacker downgrades device to an older legitimate firmware (v1.0.0) containing a known buffer overflow or logic bug.",
+    "observable": "Prohibit the flashing of authentic, signed older firmware versions that contain known unpatched vulnerabilities.",
+    "defense": "Anti-rollback enforcement comparing package version against a monotonic hardware counter in secure non-volatile memory.",
+    "metric": "test_l1_05_anti_rollback",
+    "threshold_source": "SHA-256 / CRC-32 Digest Equality (100% Match)",
+    "provenance": "PARTIAL",
+    "implemented": true,
+    "citations": [
+      "Luo et al. (IEEE IoT 2022) Sec. V-F & VII-B",
+      "TI OTA Whitepaper"
+    ],
+    "notes": "If hardware OTP fuses are exhausted, monotonic counter falls back to wear-leveled flash blocks protected by DAL/MPU."
+  },
+  {
+    "problem_id": "SEC-L1-06",
+    "layer": 1,
+    "title": "Malformed / Incomplete Update Manifest & Header Parsing",
+    "attack": "Attacker sends an image with corrupt magic bytes, negative chunk sizes, or out-of-bounds flash target offsets, crashing the bootloader.",
+    "observable": "Ensure firmware parser is resilient against buffer overflows, invalid offsets, and integer underflows during header parsing.",
+    "defense": "Strict length-bounded manifest validation and sanitization prior to allocating staging buffers or decoding fields.",
+    "metric": "test_l1_06_malformed_manifest",
+    "threshold_source": "SHA-256 / CRC-32 Digest Equality (100% Match)",
+    "provenance": "PARTIAL",
+    "implemented": true,
+    "citations": [
+      "ICOIN (2022)",
+      "Luo et al. (IEEE IoT 2022) Sec. IV-B"
+    ],
+    "notes": "Parser must execute in unprivileged isolation or with strict memory bounds."
+  },
+  {
+    "problem_id": "SEC-L1-07",
+    "layer": 1,
+    "title": "Unsupported Hardware Target / Architecture Mismatch",
+    "attack": "Flashing AVR ATmega328P firmware onto an ESP32 or wrong pinout revision, causing pin contention or permanent hardware latch-up.",
+    "observable": "Prevent accidental or malicious installation of firmware compiled for an incompatible target MCU or PCB revision.",
+    "defense": "Mandatory hardware target ID and board revision compatibility checks encoded in signed manifest header.",
+    "metric": "test_l1_07_hardware_mismatch",
+    "threshold_source": "SHA-256 / CRC-32 Digest Equality (100% Match)",
+    "provenance": "PARTIAL",
+    "implemented": true,
+    "citations": [
+      "Engineering Recommendation",
+      "Luo et al. (IEEE IoT 2022) Sec. II-B"
+    ],
+    "notes": "Requires immutable PCB revision ID pin straps or factory-burned hardware IDs."
+  },
+  {
+    "problem_id": "SEC-L1-08",
+    "layer": 1,
+    "title": "Interrupted / Truncated Chunked OTA Transfer",
+    "attack": "Partial upload leaves flash in corrupted half-written state, bricking device on subsequent reboot.",
+    "observable": "Maintain system availability when network drops or power failure interrupts firmware chunk reception mid-stream.",
+    "defense": "Staging scratch buffer with transactional commit and dual-stage CRC verification; golden image remains active until final commit.",
+    "metric": "test_l1_08_truncated_ota",
+    "threshold_source": "SHA-256 / CRC-32 Digest Equality (100% Match)",
+    "provenance": "PARTIAL",
+    "implemented": true,
+    "citations": [
+      "Sensors (2023)",
+      "ICOIN (2022)"
+    ],
+    "notes": "Staging area requires either dedicated external SPI flash or dual internal flash partitions."
+  },
+  {
+    "problem_id": "SEC-L1-09",
+    "layer": 1,
+    "title": "Unauthorized Update Requestor / Missing Transport Authentication",
+    "attack": "Unauthenticated device on the local network or bus sends an OTA trigger command, staging malicious firmware.",
+    "observable": "Restrict firmware update initiation endpoints strictly to authenticated operators and administrative consoles.",
+    "defense": "Mutual TLS / bearer authorization token validation on the update initiation endpoint before accepting any chunks.",
+    "metric": "test_l1_09_unauthorized_requestor",
+    "threshold_source": "SHA-256 / CRC-32 Digest Equality (100% Match)",
+    "provenance": "PARTIAL",
+    "implemented": true,
+    "citations": [
+      "Luo et al. (IEEE IoT 2022) Sec. III-E & V-A"
+    ],
+    "notes": "Microcontrollers acting as peripheral bus nodes require session challenge-response over UART/SPI."
+  },
+  {
+    "problem_id": "SEC-L1-10",
+    "layer": 1,
+    "title": "Dual-Bank Safe Recovery & Inconsistent State Rollback",
+    "attack": "Activated firmware passes static signature checks but enters bootloop or panic state upon executing hardware init.",
+    "observable": "Guarantee automatic fallback to the known-good 'Golden' firmware bank if newly activated firmware crashes during boot.",
+    "defense": "Dual-bank execution with hardware watchdog boot-grace timer; rollback to Bank A if Bank B fails to assert health status.",
+    "metric": "test_l1_10_safe_recovery_rollback",
+    "threshold_source": "SHA-256 / CRC-32 Digest Equality (100% Match)",
+    "provenance": "PARTIAL",
+    "implemented": true,
+    "citations": [
+      "Luo et al. (IEEE IoT 2022) Fig. 6",
+      "ICOIN (2022)"
+    ],
+    "notes": "Requires minimum flash capacity to store two full executable partitions."
+  },
+  {
+    "problem_id": "SEC-L2-01",
+    "layer": 2,
+    "title": "Unexpected Target-State Corruption & Invariant Assertion",
+    "attack": "Transient glitch flips register bits (e.g. state variable 0x00 -> 0x01), corrupting execution state without CPU trap.",
+    "observable": "Detect register bit-flips and state corruptions caused by transient voltage or EM disturbances during execution.",
+    "defense": "Software invariant assertions and redundant shadow state validation across critical execution milestones.",
+    "metric": "test_l2_01_state_corruption",
+    "threshold_source": "Noise-Floor Dynamic Baseline (RMSE <= 3x Noise Floor)",
+    "provenance": "MEASURED",
+    "implemented": true,
+    "citations": [
+      "Wiersma & Pareja (FDTC 2017) Sec. IV",
+      "Fanjas et al. (FDTC 2024) Table I"
+    ],
+    "notes": "Increases execution time by ~12-18% due to redundant state checks."
+  },
+  {
+    "problem_id": "SEC-L2-02",
+    "layer": 2,
+    "title": "Instruction-Skip Behavior (F1/F2 Models)",
+    "attack": "Single clock/voltage glitch causes CPU pipeline to fetch NOP or skip decrement instruction, altering loop counters.",
+    "observable": "Prevent attackers from skipping critical instructions (decrement, sub, security check) via power/EM glitching.",
+    "defense": "Dual-counter unrolled execution with cross-counter equality assertions (w0 == w1) and loop termination tripwires.",
+    "metric": "test_l2_02_instruction_skip_f1_f2",
+    "threshold_source": "Noise-Floor Dynamic Baseline (RMSE <= 3x Noise Floor)",
+    "provenance": "MEASURED",
+    "implemented": true,
+    "citations": [
+      "Fanjas et al. (FDTC 2024) Algorithm 1 & Table I",
+      "Wiersma & Pareja (FDTC 2017) Sec. IV-A"
+    ],
+    "notes": "Hardware lockstep is only partially effective against EM glitches (Wiersma 2017 Table II); software dual-checks provide secondary defense."
+  },
+  {
+    "problem_id": "SEC-L2-03",
+    "layer": 2,
+    "title": "Conditional Branch Hijacking (F3/F4 Models & Auth Bypass)",
+    "attack": "Glitching the comparison instruction (cmp) or branch (beq/bne) causes execution of authenticated branch without credentials.",
+    "observable": "Ensure conditional authentication branches cannot be forced into unauthorized execution paths by single-instruction skips.",
+    "defense": "Complementary condition evaluation: checking `(flag == TARGET) && (flag_inv == ~TARGET)` with random delay jitter.",
+    "metric": "test_l2_03_branch_hijack_auth",
+    "threshold_source": "Noise-Floor Dynamic Baseline (RMSE <= 3x Noise Floor)",
+    "provenance": "MEASURED",
+    "implemented": true,
+    "citations": [
+      "Wiersma & Pareja (FDTC 2017) Listing 2 & Sec. IV-B",
+      "Fanjas et al. (FDTC 2024) Table I (F.3/F.4)"
+    ],
+    "notes": "A multi-glitch attack timed exactly across both complementary evaluations can theoretically succeed if delay is non-randomized."
+  },
+  {
+    "problem_id": "SEC-L2-04",
+    "layer": 2,
+    "title": "Communication Bus Glitch & Frame Interruption",
+    "attack": "Transient noise on UART/I2C/SPI lines flips bits or truncates packets, leading to malformed command execution.",
+    "observable": "Prevent corrupted or interrupted bus frames from being processed as valid commands by the target.",
+    "defense": "Framed packet protocol with preamble, length check, sequence index, payload CRC-16, and post-frame delimiter.",
+    "metric": "test_l2_04_bus_glitch_parity",
+    "threshold_source": "Noise-Floor Dynamic Baseline (RMSE <= 3x Noise Floor)",
+    "provenance": "MEASURED",
+    "implemented": true,
+    "citations": [
+      "Fanjas et al. (FDTC 2024) Sec. IV-A",
+      "Sensors (2023)"
+    ],
+    "notes": "Adds 4 bytes of overhead per serial frame."
+  },
+  {
+    "problem_id": "SEC-L2-05",
+    "layer": 2,
+    "title": "Malformed, Duplicated, or Out-of-Order Telemetry",
+    "attack": "Adversary captures and injects past command frames or bus reflection duplicates command triggers.",
+    "observable": "Maintain deterministic ordering and reject duplicated or replayed commands across device telemetry channels.",
+    "defense": "Sliding sequence window (size=64) tracking received sequence IDs; strictly rejecting duplicate or stale sequence numbers.",
+    "metric": "test_l2_05_sequence_window",
+    "threshold_source": "Noise-Floor Dynamic Baseline (RMSE <= 3x Noise Floor)",
+    "provenance": "MEASURED",
+    "implemented": true,
+    "citations": [
+      "Wiersma & Pareja (FDTC 2017) Sec. II",
+      "Luo et al. (IEEE IoT 2022) Table I"
+    ],
+    "notes": "Window wraps after 2^32 packets; requires atomic sequence counter."
+  },
+  {
+    "problem_id": "SEC-L2-06",
+    "layer": 2,
+    "title": "Watchdog Reset & Hang Containment",
+    "attack": "Glitch vectors CPU into unmapped memory or invalid loop, causing persistent denial of service.",
+    "observable": "Guarantee automatic reset and containment when CPU execution stalls or enters an infinite loop following a glitch.",
+    "defense": "Independent hardware Watchdog Timer (WDT) serviced only after all subsystem invariant checks pass.",
+    "metric": "test_l2_06_watchdog_hang",
+    "threshold_source": "Noise-Floor Dynamic Baseline (RMSE <= 3x Noise Floor)",
+    "provenance": "MEASURED",
+    "implemented": true,
+    "citations": [
+      "Luo et al. (IEEE IoT 2022) Sec. VII-D-1",
+      "Ganssle (2012)"
+    ],
+    "notes": "Watchdog timeout period must exceed longest legitimate cryptographic computation."
+  },
+  {
+    "problem_id": "SEC-L2-07",
+    "layer": 2,
+    "title": "Inconsistent Authorization State Transition",
+    "attack": "A glitch during state assignment leaves the target in an ambiguous state where security controls are disabled prematurely.",
+    "observable": "Ensure state transitions (e.g. UNVERIFIED -> AUTHORIZED) are atomic and resistant to mid-transition interruption.",
+    "defense": "Two-phase commit state machine with transaction tokens and rollback on mid-flight exception.",
+    "metric": "test_l2_07_inconsistent_auth_state",
+    "threshold_source": "Noise-Floor Dynamic Baseline (RMSE <= 3x Noise Floor)",
+    "provenance": "MEASURED",
+    "implemented": true,
+    "citations": [
+      "Wiersma & Pareja (FDTC 2017) Sec. V",
+      "Luo et al. (IEEE IoT 2022) Sec. IV-B"
+    ],
+    "notes": "Requires atomic word writes in SRAM."
+  },
+  {
+    "problem_id": "SEC-L2-08",
+    "layer": 2,
+    "title": "Missing Fault-Detection Events & Telemetry Gap Monitoring",
+    "attack": "Attacker disconnects telemetry line or jams transceiver; backend remains oblivious to target compromise.",
+    "observable": "Detect silent failure or bus jamming where telemetry ceases without an explicit crash notice.",
+    "defense": "Continuous heartbeat monitoring with max-cadence threshold; missing 3 consecutive heartbeats escalates risk to HIGH.",
+    "metric": "test_l2_08_telemetry_gap",
+    "threshold_source": "Noise-Floor Dynamic Baseline (RMSE <= 3x Noise Floor)",
+    "provenance": "MEASURED",
+    "implemented": true,
+    "citations": [
+      "Wiersma & Pareja (FDTC 2017) Table II",
+      "Sensors (2023)"
+    ],
+    "notes": "Requires background timer thread in backend monitoring bridge."
+  },
+  {
+    "problem_id": "SEC-L2-09",
+    "layer": 2,
+    "title": "Unverified Recovery State & Post-Fault Quarantine",
+    "attack": "After a fault triggers reset, target boots directly into operational mode while SRAM or registers retain corrupted data.",
+    "observable": "Prevent compromised or glitch-corrupted targets from resuming normal operations without verifying integrity.",
+    "defense": "Quarantine mode enforcement requiring comprehensive POST (Power-On Self-Test) diagnostic checks before releasing I/O.",
+    "metric": "test_l2_09_post_fault_quarantine",
+    "threshold_source": "Noise-Floor Dynamic Baseline (RMSE <= 3x Noise Floor)",
+    "provenance": "MEASURED",
+    "implemented": true,
+    "citations": [
+      "Wiersma & Pareja (FDTC 2017) Sec. VII Recommendations"
+    ],
+    "notes": "Quarantine state slightly extends boot duration (+45ms)."
+  },
+  {
+    "problem_id": "SEC-L2-10",
+    "layer": 2,
+    "title": "Failure to Fail Closed & Emergency Lockdown",
+    "attack": "Software exception handler defaults to permissive return, allowing unauthorized memory dump or actuator activation.",
+    "observable": "Guarantee that upon unhandled faults or persistent attack, target shuts down sensitive outputs rather than failing open.",
+    "defense": "Fail-closed emergency shutdown: immediate zeroization of session keys, disabling transmitter drivers, and hardware latch.",
+    "metric": "test_l2_10_fail_closed_lockdown",
+    "threshold_source": "Noise-Floor Dynamic Baseline (RMSE <= 3x Noise Floor)",
+    "provenance": "MEASURED",
+    "implemented": true,
+    "citations": [
+      "Wiersma & Pareja (FDTC 2017) Sec. VII",
+      "NIST SP 800-88"
+    ],
+    "notes": "Requires manual power cycle or authenticated command to recover from hardware latch."
+  },
+  {
+    "problem_id": "SEC-L3-01",
+    "layer": 3,
+    "title": "Unauthorized Hardware Configuration Changes (BOCOR/UROW Fuses)",
+    "attack": "Malware running on device attempts to overwrite Non-Volatile Memory (NVM) configuration rows to disable security.",
+    "observable": "Prevent unauthorized software from altering critical security fuses and boot configurations in silicon.",
+    "defense": "Silicon fuse lock: BOCOR and UROW rows locked to DAL2 access privilege; changes rejected and require full chip erase.",
+    "metric": "test_l3_01_fuse_protection",
+    "threshold_source": "Intra-Chip HD <= 5% (Reliability) / Inter-Chip HD >= 40% (Uniqueness)",
+    "provenance": "MEASURED",
+    "implemented": true,
+    "citations": [
+      "Luo et al. (IEEE IoT 2022) Sec. II-B & V-B"
+    ],
+    "notes": "Hardware specific to ARM Cortex-M23 (SAM L11); ATmega328P uses high-voltage fuse programming lockout."
+  },
+  {
+    "problem_id": "SEC-L3-02",
+    "layer": 3,
+    "title": "Inadequate Device-Access Restriction (DAL Tiering)",
+    "attack": "External debugger connects to SWD port and reads out sensitive firmware or cryptographic keys without credentials.",
+    "observable": "Enforce strict Debugger Access Level (DAL) hierarchy to prevent unauthenticated memory dumping.",
+    "defense": "Debugger Access Level 0 (DAL0) lockdown; transitioning to DAL1/DAL2 requires 128-bit Chip Erase Key (CEKEY).",
+    "metric": "test_l3_02_dal_tiering",
+    "threshold_source": "Intra-Chip HD <= 5% (Reliability) / Inter-Chip HD >= 40% (Uniqueness)",
+    "provenance": "PARTIAL",
+    "implemented": true,
+    "citations": [
+      "Luo et al. (IEEE IoT 2022) Sec. V-B & VII-B"
+    ],
+    "notes": "Level transition strictly executes ChipErase_ALL, ensuring secret assets are destroyed prior to debugger attachment."
+  },
+  {
+    "problem_id": "SEC-L3-03",
+    "layer": 3,
+    "title": "SWD / JTAG Debug Port Exposure in Production",
+    "attack": "Attacker physically probes JTAG/SWD test pads on PCB to gain interactive control of CPU execution.",
+    "observable": "Permanently close or cryptographically protect debug interfaces on production units deployed in the field.",
+    "defense": "Hardware JTAG disable fuse blown during factory provisioning; physical pin disconnect and DPA power profiling monitoring.",
+    "metric": "test_l3_03_debug_port_lock",
+    "threshold_source": "Intra-Chip HD <= 5% (Reliability) / Inter-Chip HD >= 40% (Uniqueness)",
+    "provenance": "PARTIAL",
+    "implemented": true,
+    "citations": [
+      "Wiersma & Pareja (FDTC 2017) Sec. V & VI",
+      "Luo et al. (IEEE IoT 2022) Sec. III-A"
+    ],
+    "notes": "Wiersma et al. showed JTAG lock can be attacked via voltage/EM glitches; combining with fuse blow mitigates ROM timing bypass."
+  },
+  {
+    "problem_id": "SEC-L3-04",
+    "layer": 3,
+    "title": "Flash Readback Protection Bypass & Lock Bit Tampering",
+    "attack": "Attacker places MCU in parallel programming or ISP mode to dump proprietary IP and encryption keys.",
+    "observable": "Prohibit external programmers from reading out internal flash memory contents across all programming modes.",
+    "defense": "Flash Security Lock Bits (ATmega328P LB1=0, LB2=0) programmed to prohibit memory read commands via ISP.",
+    "metric": "test_l3_04_flash_readback_protect",
+    "threshold_source": "Intra-Chip HD <= 5% (Reliability) / Inter-Chip HD >= 40% (Uniqueness)",
+    "provenance": "PARTIAL",
+    "implemented": true,
+    "citations": [
+      "ATmega328P Datasheet",
+      "Wiersma & Pareja (FDTC 2017) Sec. V-B"
+    ],
+    "notes": "Can only be reset by full chip erase which wipes all flash and EEPROM contents."
+  },
+  {
+    "problem_id": "SEC-L3-05",
+    "layer": 3,
+    "title": "Security Policy Misconfiguration (RXN / DXN Permissions)",
+    "attack": "Attacker exploits stack buffer overflow to inject shellcode into SRAM and diverts PC to execute it.",
+    "observable": "Prevent code execution from data RAM and data flash to defeat stack and heap buffer overflow code injection.",
+    "defense": "Hardware Execute-Never policies: RAM Execute Never (RXN=1) and Data Flash Execute Never (DXN=1) in silicon fuses.",
+    "metric": "test_l3_05_rxn_dxn_policy",
+    "threshold_source": "Intra-Chip HD <= 5% (Reliability) / Inter-Chip HD >= 40% (Uniqueness)",
+    "provenance": "PARTIAL",
+    "implemented": true,
+    "citations": [
+      "Luo et al. (IEEE IoT 2022) Sec. V-D & VII-B (DXN/RXN)"
+    ],
+    "notes": "Defeats code injection; return-oriented programming (ROP) requires additional CFI / iASLR defenses."
+  },
+  {
+    "problem_id": "SEC-L3-06",
+    "layer": 3,
+    "title": "Missing Boot-Time Device Integrity Verification",
+    "attack": "Glitching during boot ROM execution causes skip of fuse verification, leaving device in unhardened default state.",
+    "observable": "Verify hardware configuration integrity before allowing execution of application code.",
+    "defense": "Hardware Boot ROM performs cryptographic digest check of BOCOR row and secure bootloader before passing execution.",
+    "metric": "test_l3_06_boot_integrity",
+    "threshold_source": "Intra-Chip HD <= 5% (Reliability) / Inter-Chip HD >= 40% (Uniqueness)",
+    "provenance": "PARTIAL",
+    "implemented": true,
+    "citations": [
+      "Luo et al. (IEEE IoT 2022) Sec. V-C",
+      "Fanjas et al. (DFT 2023) Sec. IV-B"
+    ],
+    "notes": "Hardware boot ROM is immutable; must fail into halt loop if fuse digest mismatch is detected."
+  },
+  {
+    "problem_id": "SEC-L3-07",
+    "layer": 3,
+    "title": "Anti-Rollback Enforcement Gaps in Silicon OTP Storage",
+    "attack": "Software-managed version numbers in normal flash are wiped or restored to previous backups.",
+    "observable": "Ensure version rollback protection cannot be cleared by power cycles or software manipulation.",
+    "defense": "Hardware One-Time Programmable (OTP) monotonic fuse array; bits can only be burned (0->1) and never reversed.",
+    "metric": "test_l3_07_otp_monotonic_counter",
+    "threshold_source": "Intra-Chip HD <= 5% (Reliability) / Inter-Chip HD >= 40% (Uniqueness)",
+    "provenance": "PARTIAL",
+    "implemented": true,
+    "citations": [
+      "Wiersma & Pareja (FDTC 2017) Sec. V-B",
+      "Luo et al. (IEEE IoT 2022) Sec. V-F"
+    ],
+    "notes": "Total counter updates bounded by physical OTP bit field size (e.g. 32 to 128 updates)."
+  },
+  {
+    "problem_id": "SEC-L3-08",
+    "layer": 3,
+    "title": "Insecure Provisioning & Illegal Lifecycle Transitions",
+    "attack": "Attacker forces device back into Manufacturing or Unlocked lifecycle state to regain diagnostic privileges.",
+    "observable": "Enforce unidirectional progression of device lifecycle (Manufacturing -> Provisioned -> Field Deployed -> Decommissioned).",
+    "defense": "State machine locked by OTP silicon registers; irreversible state progression enforced by on-chip logic.",
+    "metric": "test_l3_08_lifecycle_transition",
+    "threshold_source": "Intra-Chip HD <= 5% (Reliability) / Inter-Chip HD >= 40% (Uniqueness)",
+    "provenance": "PARTIAL",
+    "implemented": true,
+    "citations": [
+      "Wiersma & Pareja (FDTC 2017) Sec. V-B",
+      "Luo et al. (IEEE IoT 2022) Sec. III-A"
+    ],
+    "notes": "Decommissioning blows permanent security fuse, disabling all execution."
+  },
+  {
+    "problem_id": "SEC-L3-09",
+    "layer": 3,
+    "title": "Failure to Detect Unauthorized Hardware State Transitions",
+    "attack": "Attacker lowers supply voltage to 730mV or injects fast transients to induce timing errors (Fanjas 2024 Table II).",
+    "observable": "Detect out-of-specification electrical conditions (under-voltage, clock glitch, extreme temperature) used in fault attacks.",
+    "defense": "Internal Brown-Out Detector (BOD) and Clock Failure Detection (CFD) circuitry triggering immediate hardware reset.",
+    "metric": "test_l3_09_hardware_tamper",
+    "threshold_source": "Intra-Chip HD <= 5% (Reliability) / Inter-Chip HD >= 40% (Uniqueness)",
+    "provenance": "MEASURED",
+    "implemented": true,
+    "citations": [
+      "Fanjas et al. (FDTC 2024) Sec. IV-D & Table II",
+      "Sensors (2023)"
+    ],
+    "notes": "BOD reaction time (~1-2us) is slower than nanosecond glitches; requires decoupling capacitor placement defense."
+  },
+  {
+    "problem_id": "SEC-L3-10",
+    "layer": 3,
+    "title": "Inaccurate / Spoofed Lockdown Status Reporting",
+    "attack": "Compromised target software reports 'LOCKED' status to backend while debug interface remains open.",
+    "observable": "Ensure remote monitoring systems receive authentic, untampered proof of hardware lockdown status.",
+    "defense": "Hardware attestation report signed by internal private key held in secure crypto-coprocessor (ATECC608A / TrustZone).",
+    "metric": "test_l3_10_attestation_spoof",
+    "threshold_source": "Intra-Chip HD <= 5% (Reliability) / Inter-Chip HD >= 40% (Uniqueness)",
+    "provenance": "PARTIAL",
+    "implemented": true,
+    "citations": [
+      "Luo et al. (IEEE IoT 2022) Sec. V-A & VIII",
+      "Abera et al. (2016)"
+    ],
+    "notes": "Requires asymmetric hardware key isolated from rich execution environment."
+  },
+  {
+    "problem_id": "SEC-L4-01",
+    "layer": 4,
+    "title": "Weak Dataset Key Generation & Insufficient Entropy",
+    "attack": "Pseudorandom generator initialized with predictable seed (e.g. boot time), allowing attacker to deduce secret keys.",
+    "observable": "Guarantee that all cryptographic keys are generated using true physical entropy to prevent key predictability.",
+    "defense": "Hardware True Random Number Generator (TRNG) / NIST SP 800-90A CSPRNG with continuous health tests.",
+    "metric": "test_l4_01_key_generation_entropy",
+    "threshold_source": "HMAC-SHA256 Authenticity & Monotonic Sequence Freshness",
+    "provenance": "MEASURED",
+    "implemented": true,
+    "citations": [
+      "Luo et al. (IEEE IoT 2022) Sec. II-B",
+      "NIST SP 800-90A"
+    ],
+    "notes": "TRNG entropy health tests must abort key generation if repetitive patterns are detected."
+  },
+  {
+    "problem_id": "SEC-L4-02",
+    "layer": 4,
+    "title": "Unauthenticated Encryption & Nonce Reuse Vulnerability",
+    "attack": "Reusing the same 96-bit Initialization Vector (IV) under AES-GCM allows mathematical recovery of authentication key and plaintext.",
+    "observable": "Prevent keystream recovery and forgery in symmetric dataset encryption.",
+    "defense": "Strict AES-256-GCM authenticated encryption with monotonic 96-bit nonce manager and historical collision cache.",
+    "metric": "test_l4_02_aes_gcm_nonce_reuse",
+    "threshold_source": "HMAC-SHA256 Authenticity & Monotonic Sequence Freshness",
+    "provenance": "MEASURED",
+    "implemented": true,
+    "citations": [
+      "NIST SP 800-38D",
+      "Luo et al. (IEEE IoT 2022) Sec. III-D"
+    ],
+    "notes": "Nonce cache bounds tracking to active session; persisted epoch counters prevent post-reboot collisions."
+  },
+  {
+    "problem_id": "SEC-L4-03",
+    "layer": 4,
+    "title": "Ciphertext & Authentication Tag Tampering",
+    "attack": "Bit-flipping in ciphertext or tag truncation bypasses data integrity checks, resulting in forged record processing.",
+    "observable": "Detect any alteration to encrypted telemetry or stored records before attempting data processing.",
+    "defense": "128-bit GMAC authentication tag verification; immediate fail-stop upon tag mismatch before passing buffer to application.",
+    "metric": "test_l4_03_tag_tampering",
+    "threshold_source": "HMAC-SHA256 Authenticity & Monotonic Sequence Freshness",
+    "provenance": "MEASURED",
+    "implemented": true,
+    "citations": [
+      "NIST SP 800-38D",
+      "Luo et al. (IEEE IoT 2022) Sec. IV-B"
+    ],
+    "notes": "Decryption and authentication are performed in a single authenticated pass to avoid padding oracle attacks."
+  },
+  {
+    "problem_id": "SEC-L4-04",
+    "layer": 4,
+    "title": "Unauthorized Sanitization Request / Missing Operator Privilege",
+    "attack": "Malicious network actor invokes sanitization API, causing unauthorized permanent loss of operational logs.",
+    "observable": "Prevent unauthorized entities from triggering data purge or key destruction commands.",
+    "defense": "Cryptographically signed authorization token (dual-control operator signature) required for sanitization commands.",
+    "metric": "test_l4_04_unauthorized_sanitization",
+    "threshold_source": "HMAC-SHA256 Authenticity & Monotonic Sequence Freshness",
+    "provenance": "PARTIAL",
+    "implemented": true,
+    "citations": [
+      "NIST SP 800-88 Rev. 1 Sec. 2.4",
+      "Luo et al. (IEEE IoT 2022) Sec. III-A"
+    ],
+    "notes": "Requires root administrator public key installed during provisioning."
+  },
+  {
+    "problem_id": "SEC-L4-05",
+    "layer": 4,
+    "title": "Key Rotation Failure & Key Wearout",
+    "attack": "Using a single key across millions of messages increases side-channel leakage risk and vulnerability to cryptanalysis.",
+    "observable": "Enforce proactive retirement of encryption keys before reaching cryptographic lifetime or invocation limits.",
+    "defense": "Automated epoch-based key rotation; generation of Key V2, re-wrapping dataset headers, and retirement of Key V1.",
+    "metric": "test_l4_05_key_rotation",
+    "threshold_source": "HMAC-SHA256 Authenticity & Monotonic Sequence Freshness",
+    "provenance": "PARTIAL",
+    "implemented": true,
+    "citations": [
+      "NIST SP 800-57 Part 1",
+      "Wiersma & Pareja (FDTC 2017) Sec. II"
+    ],
+    "notes": "Existing stored datasets must either be re-encrypted or key version table retained in secure storage."
+  },
+  {
+    "problem_id": "SEC-L4-06",
+    "layer": 4,
+    "title": "Key Revocation Enforcement & Immediate Access Revocation",
+    "attack": "Device continues encrypting or decrypting with a key known to be compromised, leaking subsequent data.",
+    "observable": "Ensure compromised or retired keys are instantaneously invalidated and barred from further cryptographic use.",
+    "defense": "Real-time revocation list check inside the cryptographic engine; revoked keys return ACCESS_DENIED immediately.",
+    "metric": "test_l4_06_key_revocation",
+    "threshold_source": "HMAC-SHA256 Authenticity & Monotonic Sequence Freshness",
+    "provenance": "PARTIAL",
+    "implemented": true,
+    "citations": [
+      "Luo et al. (IEEE IoT 2022) Sec. III-E",
+      "NIST SP 800-57"
+    ],
+    "notes": "Revocation status must be consulted before every encryption/decryption invocation."
+  },
+  {
+    "problem_id": "SEC-L4-07",
+    "layer": 4,
+    "title": "Cross-Dataset Key Separation & Tenant Isolation",
+    "attack": "Key assigned to Telemetry Dataset A is accidentally or maliciously used to decrypt Sensitive Config Dataset B.",
+    "observable": "Enforce strict cryptographic boundaries between distinct datasets, tenants, and security domains.",
+    "defense": "Cryptographic domain separation: dataset ID and tenant context bound into AES-GCM Additional Authenticated Data (AAD).",
+    "metric": "test_l4_07_cross_dataset_isolation",
+    "threshold_source": "HMAC-SHA256 Authenticity & Monotonic Sequence Freshness",
+    "provenance": "PARTIAL",
+    "implemented": true,
+    "citations": [
+      "Luo et al. (IEEE IoT 2022) Sec. V-A & VII-B",
+      "NIST SP 800-38D"
+    ],
+    "notes": "Ensures cross-dataset ciphertext injection fails authentication tag verification even if keys are identical."
+  },
+  {
+    "problem_id": "SEC-L4-08",
+    "layer": 4,
+    "title": "Dataset Deletion & Key Lifecycle Inconsistency",
+    "attack": "File records are deleted from index but decryption key remains cached in RAM or flash, enabling forensic recovery.",
+    "observable": "Ensure dataset deletion is atomic across index entries, memory buffers, and key-wrapping structures.",
+    "defense": "Atomic purge lifecycle: synchronous deletion of directory references, memory zeroization, and key wrapping block destruction.",
+    "metric": "test_l4_08_lifecycle_inconsistency",
+    "threshold_source": "HMAC-SHA256 Authenticity & Monotonic Sequence Freshness",
+    "provenance": "PARTIAL",
+    "implemented": true,
+    "citations": [
+      "NIST SP 800-88 Rev. 1 Sec. 2.4",
+      "Luo et al. (IEEE IoT 2022) Sec. IV-B"
+    ],
+    "notes": "Requires filesystem and key management coordination to prevent orphan keys."
+  },
+  {
+    "problem_id": "SEC-L4-09",
+    "layer": 4,
+    "title": "Cryptographic Erasure (Crypto-Shredding) & Memory Zeroization",
+    "attack": "Adversary seizes decommissioned or stolen device and extracts raw NAND/flash contents via chip-off forensics.",
+    "observable": "Render encrypted target data permanently unrecoverable in milliseconds by destroying the master decryption key.",
+    "defense": "Cryptographic erasure (NIST SP 800-88): secure multipass zeroization of master key in RAM and secure NVM, rendering ciphertext irreversibly unrecoverable.",
+    "metric": "test_l4_09_crypto_shredding_zeroize",
+    "threshold_source": "HMAC-SHA256 Authenticity & Monotonic Sequence Freshness",
+    "provenance": "PARTIAL",
+    "implemented": true,
+    "citations": [
+      "NIST SP 800-88 Rev. 1 Sec. 4.3",
+      "Luo et al. (IEEE IoT 2022) Sec. V-A"
+    ],
+    "notes": "Physical media cells retain ciphertext; security relies mathematically on 256-bit AES cipher strength."
+  },
+  {
+    "problem_id": "SEC-L4-10",
+    "layer": 4,
+    "title": "Post-Erasure Recovery Attempts & Stale-Reference Handling",
+    "attack": "Application attempts to read dangling dataset pointer after erasure, returning stale in-memory buffers or partial reads.",
+    "observable": "Ensure all post-erasure read or recovery attempts strictly fail with documented error status and zero data leakage.",
+    "defense": "Dangling handle trap: invalidating dataset handles, clearing read cache, and returning formal PERMANENTLY_PURGED status.",
+    "metric": "test_l4_10_post_erasure_recovery",
+    "threshold_source": "HMAC-SHA256 Authenticity & Monotonic Sequence Freshness",
+    "provenance": "PARTIAL",
+    "implemented": true,
+    "citations": [
+      "NIST SP 800-88 Rev. 1 Sec. 4.3",
+      "Luo et al. (IEEE IoT 2022) Sec. IV-B"
+    ],
+    "notes": "Traps both API-level dereferencing and low-level cache buffers."
+  }
+]

@@ -1,16 +1,58 @@
-# ZeroTrace .gitignore
-venv/
-.venv/
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
-node_modules/
+*.so
+
+# Distribution / packaging
+build/
+develop-eggs/
 dist/
-*.local.*
-config/devices.local.yaml
-*.secret
-*.key
-.DS_Store
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv/
 .env
+
+# Testing & Coverage
 .pytest_cache/
-.backup_checkpoint*/
+.coverage
+.coverage.*
+htmlcov/
+*.cover
+
+# Operating System & IDE Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary artifacts & test exports (keep .gitkeep so exports directory is tracked)
+exports/*.pdf
+exports/*.png
+exports/*.csv
+exports/*.json
+!exports/.gitkeep
+!exports/sample_*

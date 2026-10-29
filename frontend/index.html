@@ -1,16 +1,134 @@
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ZeroTrace - NIST CSF 2.0 Hardware Zero-Trust Testbed</title>
-    <meta name="description" content="Hardware-in-the-loop cybersecurity testbed demonstrating a 4-Layer Zero-Trust Framework for IoT devices, mapped to NIST CSF 2.0." />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZeroTrace — IoT Cybersecurity & Real-Time Waveform Testbed</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <!-- Local Offline Plotly.js -->
+  <script src="/static/js/vendor/plotly.min.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-icon">ZT</div>
+        <div>
+          <div class="brand-title">ZEROTRACE</div>
+          <span class="brand-badge">Hardware Testbed</span>
+        </div>
+      </div>
+
+      <div class="nav-section">Hardware & Instrumentation</div>
+      <ul class="nav-links">
+        <li class="nav-item active" data-tab="overview" onclick="App.switchTab('overview')">
+          <span>📊 Overview & Live Stream</span>
+        </li>
+        <li class="nav-item" data-tab="hardware-setup" onclick="App.switchTab('hardware-setup')">
+          <span>🔌 Hardware Setup Gate</span>
+        </li>
+        <li class="nav-item" data-tab="toolchain" onclick="App.switchTab('toolchain')">
+          <span>🛠️ Arduino Toolchain</span>
+        </li>
+        <li class="nav-item" data-tab="wiring-guide" onclick="App.switchTab('wiring-guide')">
+          <span>📐 Wiring & Pinout Guide</span>
+        </li>
+        <li class="nav-item" data-tab="device-manager" onclick="App.switchTab('device-manager')">
+          <span>💻 Device Manager</span>
+        </li>
+      </ul>
+
+      <div class="nav-section">Security Layers (40 Problems)</div>
+      <ul class="nav-links">
+        <li class="nav-item" data-tab="layer1" onclick="App.switchTab('layer1')">
+          <span>🛡️ Layer 1 — Secure Boot & OTA</span>
+          <span class="badge-count">10</span>
+        </li>
+        <li class="nav-item" data-tab="layer2" onclick="App.switchTab('layer2')">
+          <span>⚡ Layer 2 — Fault Tolerance</span>
+          <span class="badge-count">10</span>
+        </li>
+        <li class="nav-item" data-tab="layer3" onclick="App.switchTab('layer3')">
+          <span>🔒 Layer 3 — Silicon Lockdown</span>
+          <span class="badge-count">10</span>
+        </li>
+        <li class="nav-item" data-tab="layer4" onclick="App.switchTab('layer4')">
+          <span>🔑 Layer 4 — Crypto Lifecycle</span>
+          <span class="badge-count">10</span>
+        </li>
+      </ul>
+
+      <div class="nav-section">Execution & Diagnostics</div>
+      <ul class="nav-links">
+        <li class="nav-item" data-tab="console" onclick="App.switchTab('console')">
+          <span>🎮 Scenario Console</span>
+        </li>
+        <li class="nav-item" data-tab="waveform-lab" onclick="App.switchTab('waveform-lab')">
+          <span>📈 Waveform Lab</span>
+        </li>
+        <li class="nav-item" data-tab="firmware-trust" onclick="App.switchTab('firmware-trust')">
+          <span>🔐 Firmware Trust</span>
+        </li>
+        <li class="nav-item" data-tab="events" onclick="App.switchTab('events')">
+          <span>📋 Events & Incidents</span>
+        </li>
+        <li class="nav-item" data-tab="risk" onclick="App.switchTab('risk')">
+          <span>⚖️ Risk Assessment</span>
+        </li>
+      </ul>
+
+      <div class="nav-section">Audit & Settings</div>
+      <ul class="nav-links">
+        <li class="nav-item" data-tab="catalog" onclick="App.switchTab('catalog')">
+          <span>📚 40 Problems Catalog</span>
+          <span class="badge-count">40</span>
+        </li>
+        <li class="nav-item" data-tab="evidence" onclick="App.switchTab('evidence')">
+          <span>📑 Evidence & PDF Exports</span>
+        </li>
+        <li class="nav-item" data-tab="settings" onclick="App.switchTab('settings')">
+          <span>⚙️ Settings & System</span>
+        </li>
+      </ul>
+
+      <div class="sidebar-footer">
+        <button id="theme-toggle-btn" class="theme-toggle-btn" onclick="App.toggleTheme()">
+          ☀️ Light Mode
+        </button>
+        <div style="font-size: 11px; color: var(--text-muted); text-align: center;">
+          ZeroTrace v1.0.0 &bull; ATmega328P / ESP32
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Workspace -->
+    <main class="main-wrapper">
+      <header class="top-bar">
+        <div class="view-title-group">
+          <div id="top-view-title" class="view-title">ZeroTrace Engineering Console</div>
+        </div>
+
+        <div class="hardware-pills">
+          <span class="pill pulse">Bridge Online</span>
+          <span id="top-mode-pill" class="pill pill-mode-simulated">SIMULATED — NOT MEASURED</span>
+          <button class="btn-primary" onclick="App.runFullCampaign()">
+            ▶ Run Full Campaign
+          </button>
+        </div>
+      </header>
+
+      <div id="view-content-container" class="content-body">
+        <!-- Injected dynamically by LayerViews -->
+      </div>
+    </main>
+  </div>
+
+  <!-- App Scripts -->
+  <script src="/static/js/charts.js"></script>
+  <script src="/static/js/layer_views.js"></script>
+  <script src="/static/js/evidence_view.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
 </html>
+
